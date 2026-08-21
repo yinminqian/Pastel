@@ -117,10 +117,10 @@ final class PanelController {
     /// Dismiss first, then paste. The panel has to be off screen and our app
     /// out of the way before the keystroke goes anywhere, or it lands here
     /// instead of in the app the user was actually using.
-    func paste(_ item: ClipItem) {
+    func paste(_ item: ClipItem, plainTextOnly: Bool = false) {
         let target = previousApp
         hide { [weak self] in
-            self?.pasteService.paste(item, into: target)
+            self?.pasteService.paste(item, into: target, plainTextOnly: plainTextOnly)
         }
     }
 
@@ -154,7 +154,9 @@ final class PanelController {
         panel.onCancel = { [weak self] in self?.hide() }
         let hosting = NSHostingView(
             rootView: ClipboardPanelView(onClose: { [weak self] in self?.hide() },
-                                    onPaste: { [weak self] item in self?.paste(item) },
+                                    onPaste: { [weak self] item, plainOnly in
+                                        self?.paste(item, plainTextOnly: plainOnly)
+                                    },
                                     presentation: presentation,
                                     permissions: permissions,
                                     launchAtLogin: launchAtLogin)

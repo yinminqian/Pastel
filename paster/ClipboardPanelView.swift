@@ -88,7 +88,7 @@ struct ClipboardPanelView: View {
     var onClose: () -> Void = {}
     /// The panel does not paste itself — that needs the previously-frontmost
     /// app, which only `PanelController` knows.
-    var onPaste: (ClipItem) -> Void = { _ in }
+    var onPaste: (ClipItem, Bool) -> Void = { _, _ in }
 
     var presentation = PanelPresentation(isVisible: true)
     var permissions = PermissionsService()
@@ -153,6 +153,18 @@ struct ClipboardPanelView: View {
         // unmodified Delete while typing can never destroy a clipping.
         .onKeyPress(.upArrow) { move(-1); return .handled }
         .onKeyPress(.downArrow) { move(1); return .handled }
+        // Quick Paste. Command-digit rather than a bare digit, because a bare
+        // digit belongs to whatever you are typing in the search field.
+        .onKeyPress(characters: .decimalDigits, phases: .down) { press in
+            guard press.modifiers.contains(.command),
+                  let digit = press.characters.first.flatMap({ Int(String($0)) }),
+                  digit >= 1
+            else { return .ignored }
+            let index = digit - 1
+            guard visible.indices.contains(index) else { return .ignored }
+            onPaste(visible[index], press.modifiers.contains(.shift))
+            return .handled
+        }
     }
 
     // MARK: Header
@@ -271,16 +283,20 @@ struct ClipboardPanelView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), spacing: 14)], spacing: 14) {
-                    ForEach(visible) { clip in
-                        ClipCard(clip: clip, isSelected: clip.persistentModelID == selection)
+                    ForEach(Array(visible.enumerated()), id: \.element.persistentModelID) { index, clip in
+                        ClipCard(clip: clip,
+                                 isSelected: clip.persistentModelID == selection,
+                                 quickPasteDigit: index < 9 ? index + 1 : nil)
                             .id(clip.persistentModelID)
-                            .onTapGesture { onPaste(clip) }
+                            .onTapGesture { onPaste(clip, false) }
                             // Zero-permission alternative to synthesising a
                             // keystroke: the user drags the card straight into
                             // the target app.
                             .onDrag { itemProvider(for: clip) }
                             .contextMenu {
-                                Button("Paste") { onPaste(clip) }
+                                Button("Paste") { onPaste(clip, false) }
+                                Button("Paste as Plain Text") { onPaste(clip, true) }
+                                Divider()
                                 Button("Delete", role: .destructive) { delete(clip) }
                             }
                     }
@@ -308,7 +324,7 @@ struct ClipboardPanelView: View {
     /// the user did not choose into a real document is worse than doing nothing.
     private func pasteSelected() {
         guard let clip = visible.first(where: { $0.persistentModelID == selection }) else { return }
-        onPaste(clip)
+        onPaste(clip, false)
     }
 
     private func deleteSelected() {
@@ -362,6 +378,9 @@ struct ClipboardPanelView: View {
 private struct ClipCard: View {
     let clip: ClipItem
     let isSelected: Bool
+    /// 1–9 for the first nine cards, so the shortcut is discoverable rather
+    /// than something you have to read the README to find.
+    let quickPasteDigit: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -416,6 +435,10 @@ private struct ClipCard: View {
             Spacer()
             if clip.kind == .richText {
                 Text("RICH").font(.system(size: 8, weight: .bold))
+            }
+            if let quickPasteDigit {
+                Text("⌘\(quickPasteDigit)")
+                    .font(.system(size: 9, weight: .medium).monospacedDigit())
             }
         }
         .foregroundStyle(.secondary)

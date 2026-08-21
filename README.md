@@ -24,6 +24,8 @@ to see how clipboard capture on modern macOS actually works, read `ClipboardMoni
 - Search, arrow-key navigation, <kbd>⌘</kbd><kbd>⌫</kbd> to delete, and
   drag-a-card-into-another-app.
 - Pause capture from the menu bar, or with `open paster://pause`.
+- <kbd>⌘</kbd><kbd>1</kbd>–<kbd>⌘</kbd><kbd>9</kbd> pastes one of the first nine
+  cards without arrowing to it; add <kbd>⇧</kbd> to paste as plain text.
 
 ## What it does not do
 
@@ -37,17 +39,27 @@ macOS 26.0 or later, Apple silicon. Xcode 26 to build.
 
 ## Install
 
-Build it yourself:
+There are no notarized downloads, so build it yourself:
 
 ```sh
 git clone <this repo>
 cd paster
-xcodebuild -project paster.xcodeproj -scheme paster -configuration Release build
+./scripts/release.sh
 ```
 
-Copy the resulting `paster.app` into `/Applications`. Launching it from
+That runs the tests, builds Release, checks the signing posture, and produces
+`paster.dmg`. Open it and drag `paster.app` into `/Applications`. Launching it from
 `/Applications` rather than from `DerivedData` matters, because launch-at-login
 and the Accessibility grant are both keyed to a stable location and signature.
+
+### On notarization
+
+`scripts/release.sh` notarizes automatically **if** you have a Developer ID
+Application certificate, and tells you it is skipping if you do not. An Apple
+Development certificate — the one Xcode installs for you — cannot be notarized.
+Without notarization the DMG runs fine on the machine that built it and is
+refused by Gatekeeper anywhere it is downloaded, which is why there are no
+release binaries here.
 
 ### Permissions
 
@@ -96,6 +108,22 @@ a clipping made on your phone is one you want here — but it is labelled, becau
 the frontmost Mac app did not produce it. The store is **not encrypted at rest**;
 it relies on FileVault, same as every other clipboard manager.
 
+## Tests
+
+```sh
+xcodebuild test -project paster.xcodeproj -scheme paster -destination 'platform=macOS'
+```
+
+55 tests over the parts where a mistake is expensive and silent: both privacy
+layers, the payload archive's round-trip, kind-classification precedence,
+fingerprint stability, image re-encode bounds, and the payload backfill's
+idempotence. The scheme is shared, so CI runs the same command.
+
+They exist because the behaviour used to be checked with hand-written shell
+probes, and those probes were wrong twice — once reporting a hotkey conflict
+that did not exist, once reporting every stored payload as corrupt when it was
+the probe misreading Core Data's framing byte.
+
 ## Architecture
 
 Twelve files, no dependencies.
@@ -142,7 +170,8 @@ Things left out on purpose, so nobody has to rediscover why:
   current shape is honest about the limitation instead of half-supporting it.
 - **A configurable shortcut.** <kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd> is
   hardcoded. Note that it is "paste and match style" in many editors, and this
-  app takes it exclusively while running.
+  app takes it exclusively while running. If another app already owns it, the
+  panel says so and the Dock icon still opens the panel.
 - **Undo.** Deleting a clipping is permanent. The delete key is
   <kbd>⌘</kbd><kbd>⌫</kbd> rather than <kbd>⌫</kbd> so it cannot happen while
   you are typing in the search field.

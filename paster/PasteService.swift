@@ -24,8 +24,14 @@ final class PasteService {
     /// content is already on the pasteboard, so the user just presses Cmd-V —
     /// which is exactly the "no focused field" fallback, with no need to
     /// inspect the focused element at all.
-    func paste(_ item: ClipItem, into target: NSRunningApplication?) {
-        write(item)
+    /// - Parameter plainTextOnly: strips every flavour except plain text.
+    ///   Wanted often enough to be a first-class option: pasting a styled
+    ///   fragment into a document usually drags the source's fonts and colours
+    ///   along with it.
+    func paste(_ item: ClipItem,
+               into target: NSRunningApplication?,
+               plainTextOnly: Bool = false) {
+        write(item, plainTextOnly: plainTextOnly)
         item.lastPastedAt = Date()
 
         guard AXIsProcessTrusted(), let target, !target.isTerminated else { return }
@@ -42,7 +48,7 @@ final class PasteService {
 
     // MARK: - Pasteboard
 
-    private func write(_ item: ClipItem) {
+    private func write(_ item: ClipItem, plainTextOnly: Bool) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
@@ -50,7 +56,9 @@ final class PasteService {
         // its own best fit — this is what keeps a rich-text paste rich instead
         // of collapsing it to plain text.
         let entry = NSPasteboardItem()
-        for representation in item.representations {
+        let plainText = NSPasteboard.PasteboardType.string.rawValue
+        for representation in item.representations
+        where !plainTextOnly || representation.typeIdentifier == plainText {
             entry.setData(representation.data,
                           forType: NSPasteboard.PasteboardType(representation.typeIdentifier))
         }
