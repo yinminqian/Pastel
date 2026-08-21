@@ -41,7 +41,7 @@ final class ClipboardMonitor {
     /// plain-text and RTF ones leaves a usable clipping, whereas discarding the
     /// whole item because a single flavour was huge throws away content the
     /// user cannot get back.
-    private static let maxRepresentationBytes = 10 * 1024 * 1024
+    static let maxRepresentationBytes = 10 * 1024 * 1024
 
     /// Once a clipping reaches this, stop taking further flavours but keep what
     /// was already collected. A backstop against pathological items carrying
@@ -301,7 +301,7 @@ final class ClipboardMonitor {
 
     // MARK: - Derivation
 
-    private static func fingerprint(of reps: [(type: String, data: Data)]) -> String {
+    static func fingerprint(of reps: [(type: String, data: Data)]) -> String {
         var hasher = SHA256()
         for rep in reps.sorted(by: { $0.type < $1.type }) {
             hasher.update(data: Data(rep.type.utf8))
@@ -310,7 +310,7 @@ final class ClipboardMonitor {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func kind(for types: Set<String>) -> ClipKind {
+    static func kind(for types: Set<String>) -> ClipKind {
         if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue) { return .fileURL }
         if types.contains(NSPasteboard.PasteboardType.png.rawValue)
             || types.contains(NSPasteboard.PasteboardType.tiff.rawValue) { return .image }
@@ -321,13 +321,13 @@ final class ClipboardMonitor {
         return .other
     }
 
-    private static func isImageType(_ identifier: String) -> Bool {
+    static func isImageType(_ identifier: String) -> Bool {
         identifier == NSPasteboard.PasteboardType.png.rawValue
             || identifier == NSPasteboard.PasteboardType.tiff.rawValue
     }
 
     /// Re-encodes an image to PNG, bounded to `maxPixel` on its longest side.
-    private static func reencodedPNG(from data: Data, maxPixel: CGFloat) -> Data? {
+    static func reencodedPNG(from data: Data, maxPixel: CGFloat) -> Data? {
         guard let source = NSImage(data: data) else { return nil }
         let size = source.size
         guard size.width > 0, size.height > 0 else { return nil }
@@ -359,12 +359,12 @@ final class ClipboardMonitor {
         return rep.representation(using: .png, properties: [:])
     }
 
-    private static func thumbnail(from reps: [(type: String, data: Data)]) -> Data? {
+    static func thumbnail(from reps: [(type: String, data: Data)]) -> Data? {
         guard let image = reps.first(where: { isImageType($0.type) })?.data else { return nil }
         return reencodedPNG(from: image, maxPixel: 320)
     }
 
-    private static func previewText(from reps: [(type: String, data: Data)]) -> String? {
+    static func previewText(from reps: [(type: String, data: Data)]) -> String? {
         let plain = NSPasteboard.PasteboardType.string.rawValue
         let url = NSPasteboard.PasteboardType.fileURL.rawValue
         for identifier in [plain, url] {

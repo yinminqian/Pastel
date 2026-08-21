@@ -8,6 +8,7 @@
 
 /* Begin PBXFileReference section */
 		544619A5303839F100F7C55A /* paster.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = paster.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA10BEEF0000000000000010 /* pasterTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = pasterTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +17,22 @@
 			path = paster;
 			sourceTree = "<group>";
 		};
+		AA00BEEF0000000000000000 /* pasterTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = pasterTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		544619A2303839F100F7C55A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA03BEEF0000000000000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +46,7 @@
 			isa = PBXGroup;
 			children = (
 				544619A7303839F100F7C55A /* paster */,
+				AA00BEEF0000000000000000 /* pasterTests */,
 				544619A6303839F100F7C55A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				544619A5303839F100F7C55A /* paster.app */,
+				AA10BEEF0000000000000010 /* pasterTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,7 +85,48 @@
 			productReference = 544619A5303839F100F7C55A /* paster.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AA01BEEF0000000000000001 /* pasterTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA05BEEF0000000000000005 /* Build configuration list for PBXNativeTarget "pasterTests" */;
+			buildPhases = (
+				AA02BEEF0000000000000002 /* Sources */,
+				AA03BEEF0000000000000003 /* Frameworks */,
+				AA04BEEF0000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA08BEEF0000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA00BEEF0000000000000000 /* pasterTests */,
+			);
+			name = pasterTests;
+			packageProductDependencies = (
+			);
+			productName = pasterTests;
+			productReference = AA10BEEF0000000000000010 /* pasterTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		AA09BEEF0000000000000009 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5446199D303839F100F7C55A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 544619A4303839F100F7C55A;
+			remoteInfo = paster;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		AA08BEEF0000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 544619A4303839F100F7C55A /* paster */;
+			targetProxy = AA09BEEF0000000000000009 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		5446199D303839F100F7C55A /* Project object */ = {
@@ -100,6 +156,7 @@
 			projectRoot = "";
 			targets = (
 				544619A4303839F100F7C55A /* paster */,
+				AA01BEEF0000000000000001 /* pasterTests */,
 			);
 		};
 /* End PBXProject section */
@@ -112,10 +169,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA04BEEF0000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		544619A1303839F100F7C55A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA02BEEF0000000000000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -311,6 +382,40 @@
 			};
 			name = Release;
 		};
+		AA06BEEF0000000000000006 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PVVK6M9WNF;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minqian.pasterTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/paster.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/paster";
+			};
+			name = Debug;
+		};
+		AA07BEEF0000000000000007 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = PVVK6M9WNF;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.minqian.pasterTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/paster.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/paster";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -328,6 +433,15 @@
 			buildConfigurations = (
 				544619B6303839F300F7C55A /* Debug */,
 				544619B7303839F300F7C55A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA05BEEF0000000000000005 /* Build configuration list for PBXNativeTarget "pasterTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA06BEEF0000000000000006 /* Debug */,
+				AA07BEEF0000000000000007 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
