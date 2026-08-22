@@ -221,7 +221,7 @@ private enum SelectionStyle {
 
 /// Coarse time buckets, so the grid carries time context in a handful of
 /// headers instead of repeating a relative timestamp on every card.
-private enum ClipEra: String, CaseIterable {
+enum ClipEra: String, CaseIterable {
     case today = "Today"
     case yesterday = "Yesterday"
     case week = "Previous 7 Days"
@@ -233,6 +233,94 @@ private enum ClipEra: String, CaseIterable {
         if calendar.isDateInYesterday(date) { return .yesterday }
         let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
         return days <= 7 ? .week : .earlier
+    }
+}
+
+// MARK: - Grouping
+
+/// How the grid is laid out: which sections, in what order, and which cards
+/// carry a quick-paste digit.
+///
+/// Pulled out of the view because the ordering is shared by three things that
+/// have to agree — the sections the grid draws, the list the arrow keys walk,
+/// and the ⌘1–⌘9 digits — and a disagreement between them is invisible to a
+/// test as long as the derivation lives inside a `body`. It was in fact wrong:
+/// after a pin moved a card into the leading section, ⌘1 was drawn on two cards
+/// at once and two cards showed a selection ring.
+enum ClipGrouping {
+    /// A clipping together with the digit that pastes it.
+    ///
+    /// Paired rather than looked up per card. The digit describes a position in
+    /// the grid, so deriving it separately from the grid's own ordering makes
+    /// two sources of truth that can disagree. It also replaces an O(n) scan
+    /// per card with one pass over the list.
+    struct Entry: Identifiable {
+        let clip: ClipItem
+        let digit: Int?
+        var id: PersistentIdentifier { clip.persistentModelID }
+    }
+
+    /// Identified by its title, not by its position.
+    ///
+    /// An offset-based id was the other half of the same bug: pinning inserts a
+    /// section at the front, so every later section's offset shifts by one and
+    /// SwiftUI matches each section's content against the section that used to
+    /// be there — leaving cards with properties from a layout they are no
+    /// longer part of. Titles are unique by construction: one "Pinned" and at
+    /// most one per era.
+    struct Section: Identifiable {
+        let title: String
+        let entries: [Entry]
+        var id: String { title }
+    }
+
+    static let pinnedTitle = "Pinned"
+
+    /// The single ordering everything else reads: pinned first, input order
+    /// preserved within each partition.
+    ///
+    /// The keyboard and the digits both use this, so a pinned card drawn in the
+    /// leading section is also the card ⌘1 pastes and the card the up arrow
+    /// stops at. Sorting only inside `sections` would leave the keyboard
+    /// walking an order the eye does not see.
+    static func ordered(_ clips: [ClipItem]) -> [ClipItem] {
+        let pinned = clips.filter(\.isPinned)
+        guard !pinned.isEmpty else { return clips }
+        return pinned + clips.filter { !$0.isPinned }
+    }
+
+    /// - Parameter clips: already through `ordered`.
+    static func sections(_ clips: [ClipItem], now: Date = Date()) -> [Section] {
+        // 1–9 for the first nine cards overall, numbered in the order the grid
+        // draws them, so the digits match what the eye counts from the top
+        // regardless of where the section boundaries fall.
+        var digits: [PersistentIdentifier: Int] = [:]
+        for (index, clip) in clips.prefix(9).enumerated() {
+            digits[clip.persistentModelID] = index + 1
+        }
+        func numbered(_ items: [ClipItem]) -> [Entry] {
+            items.map { Entry(clip: $0, digit: digits[$0.persistentModelID]) }
+        }
+
+        var result: [Section] = []
+
+        // Pinned clippings leave their era entirely rather than appearing twice.
+        // A card in two places is a card the arrow keys visit twice and the
+        // digits cannot label, and "kept on purpose" is the more useful thing to
+        // know about it than when it was copied.
+        let pinned = clips.filter(\.isPinned)
+        if !pinned.isEmpty {
+            result.append(Section(title: pinnedTitle, entries: numbered(pinned)))
+        }
+
+        let buckets = Dictionary(grouping: clips.filter { !$0.isPinned }) {
+            ClipEra.of($0.copiedAt, now: now)
+        }
+        result += ClipEra.allCases.compactMap { era in
+            guard let items = buckets[era], !items.isEmpty else { return nil }
+            return Section(title: era.rawValue, entries: numbered(items))
+        }
+        return result
     }
 }
 
@@ -266,24 +354,11 @@ struct ClipboardPanelView: View {
         let matches = search.isEmpty ? clips : clips.filter {
             $0.previewText?.localizedCaseInsensitiveContains(search) ?? false
         }
-        return Self.pinnedFirst(matches)
+        return ClipGrouping.ordered(matches)
     }
 
     private var selectedClip: ClipItem? {
         clips.first { $0.persistentModelID == selection }
-    }
-
-    /// Pinned rows moved to the front, order preserved within each partition.
-    ///
-    /// This is the one list the keyboard, the quick-paste digits and the grid
-    /// all read. Sorting it here rather than only in `grouped` is what keeps
-    /// ⌘1 on the card that is visually first: the grid draws pinned cards in
-    /// their own leading section, so a flat list still sorted by date would
-    /// number the cards in an order the eye does not see.
-    private static func pinnedFirst(_ list: [ClipItem]) -> [ClipItem] {
-        let pinned = list.filter(\.isPinned)
-        guard !pinned.isEmpty else { return list }
-        return pinned + list.filter { !$0.isPinned }
     }
 
     var body: some View {
@@ -525,11 +600,19 @@ struct ClipboardPanelView: View {
     private var grid: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                // A zero-height anchor above the grid, so resetting the scroll
+                // position returns to the very top rather than to the first
+                // card. Scrolling to the card put the card flush with the top
+                // edge and pushed its section header out of sight, so a
+                // re-summoned panel opened on a grid with no "Pinned" or
+                // "Today" heading at all.
+                Color.clear.frame(height: 0).id(Self.topAnchor)
+
                 LazyVGrid(columns: columns, alignment: .leading, spacing: PanelMetrics.cardGap) {
-                    ForEach(Array(grouped.enumerated()), id: \.offset) { _, group in
+                    ForEach(ClipGrouping.sections(visible)) { group in
                         Section {
-                            ForEach(group.items, id: \.persistentModelID) { clip in
-                                card(for: clip)
+                            ForEach(group.entries) { entry in
+                                card(for: entry)
                             }
                         } header: {
                             // Smaller than the card text and in title case, per
@@ -563,11 +646,12 @@ struct ClipboardPanelView: View {
     /// Extracted because the grid's nested `ForEach`/`Section` plus a card's
     /// modifier chain was more than the type checker would solve in reasonable
     /// time.
-    private func card(for clip: ClipItem) -> some View {
-        ClipCard(clip: clip,
-                 isSelected: clip.persistentModelID == selection,
-                 isKey: presentation.isKeyWindow,
-                 quickPasteDigit: digit(for: clip))
+    private func card(for entry: ClipGrouping.Entry) -> some View {
+        let clip = entry.clip
+        return ClipCard(clip: clip,
+                        isSelected: clip.persistentModelID == selection,
+                        isKey: presentation.isKeyWindow,
+                        quickPasteDigit: entry.digit)
             .id(clip.persistentModelID)
             .onTapGesture {
                 selection = clip.persistentModelID
@@ -582,43 +666,6 @@ struct ClipboardPanelView: View {
                 Divider()
                 Button("Delete", role: .destructive) { delete(clip) }
             }
-    }
-
-    private struct Bucket {
-        let title: String
-        let items: [ClipItem]
-    }
-
-    /// Pinned first, then the time buckets.
-    ///
-    /// Pinned clippings leave their era entirely rather than appearing twice.
-    /// A card in two places is a card the arrow keys have to visit twice and
-    /// the digits cannot label, and "kept on purpose" is the more useful thing
-    /// to know about it than when it was copied.
-    private var grouped: [Bucket] {
-        let list = visible
-        var result: [Bucket] = []
-
-        let pinned = list.filter(\.isPinned)
-        if !pinned.isEmpty { result.append(Bucket(title: "Pinned", items: pinned)) }
-
-        let buckets = Dictionary(grouping: list.filter { !$0.isPinned }) {
-            ClipEra.of($0.copiedAt)
-        }
-        result += ClipEra.allCases.compactMap { era in
-            guard let items = buckets[era], !items.isEmpty else { return nil }
-            return Bucket(title: era.rawValue, items: items)
-        }
-        return result
-    }
-
-    /// 1–9 for the first nine cards overall, so the digits match what the eye
-    /// counts from the top regardless of section boundaries.
-    private func digit(for clip: ClipItem) -> Int? {
-        guard let index = visible.firstIndex(where: { $0.persistentModelID == clip.persistentModelID }),
-              index < 9
-        else { return nil }
-        return index + 1
     }
 
     // MARK: Actions
@@ -672,13 +719,14 @@ struct ClipboardPanelView: View {
         try? modelContext.save()
     }
 
+    private static let topAnchor = "grid-top"
+
     private func resetScroll() {
         // Not `clips.first`: with a pin present the newest clipping is no longer
-        // the topmost card, and scrolling to it would leave the grid mid-list.
-        let first = Self.pinnedFirst(clips).first?.persistentModelID
-        selection = first
-        guard let first, let scrollProxy else { return }
-        scrollProxy.scrollTo(first, anchor: .top)
+        // the topmost card, so the selection has to come from the same ordering
+        // the grid draws.
+        selection = ClipGrouping.ordered(clips).first?.persistentModelID
+        scrollProxy?.scrollTo(Self.topAnchor, anchor: .top)
     }
 
     /// Builds a drag payload carrying every stored representation, registered
