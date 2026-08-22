@@ -36,19 +36,17 @@ enum PanelMetrics {
     static let gridColumns = 4
     static let cardGap: CGFloat = 12
 
-    /// Wide enough to read a phrase of a clipping, not wide enough to become
-    /// the whole bar: the grid below is what the panel is for.
-    static let searchWidth: CGFloat = 280
-    /// The search capsule's height, matched to what `.buttonStyle(.glass)`
-    /// renders for an icon-only button so the header sits on one baseline.
-    /// Measured off screen rather than picked.
-    static let headerControl: CGFloat = 24
-    /// Between the three action buttons, and deliberately not smaller than the
-    /// container's spacing. A container spacing *larger* than its interior
-    /// stack's makes the glass shapes blend at rest — which fused the three
-    /// circles into a scalloped chain. Equal spacing leaves them as three
-    /// separate controls, which is what they are.
-    static let headerClusterSpacing: CGFloat = 10
+    /// Every control in Safari's macOS 26 toolbar measures this tall — the
+    /// sidebar capsule, the back/forward capsule, the address field and the
+    /// actions cluster, all the same, inside a toolbar the accessibility API
+    /// reports as 52pt. Measured, not chosen: an earlier pass used 24 and the
+    /// header read as a toy.
+    static let headerControl: CGFloat = 36
+    /// Safari's toolbar glyphs, to the nearest point.
+    static let headerGlyph: CGFloat = 15
+    /// Safari's address field is 40% of its window's width. This is a little
+    /// under that, because a clipboard panel's subject is the grid below.
+    static let searchWidth: CGFloat = 340
     /// Between the header's three groups.
     static let headerGlassSpacing: CGFloat = 10
 
@@ -456,104 +454,116 @@ struct ClipboardPanelView: View {
 
     // MARK: Header
 
-    /// The functional layer, on glass — built the way Apple's toolbar builds it.
+    /// The functional layer, on glass, at Safari's metrics.
     ///
     /// This started as flat monochrome chrome, on the reasoning that the panel's
     /// own material was already the functional layer and glass on top would be
     /// glass on glass. Wrong reading: the guidance puts Liquid Glass in the
     /// **functional** layer, and a panel's header is functional chrome over
-    /// content. Safari's macOS 26 toolbar is this same construction.
+    /// content — which is exactly where macOS 26 puts a toolbar's glass.
     ///
-    /// Three groups, like Safari's toolbar: window controls, the field, the
-    /// actions. In a real toolbar *adjacent* `ToolbarItem`s share one Liquid
-    /// Glass capsule and `ToolbarSpacer` breaks them apart, which is where that
-    /// rhythm comes from. A borderless panel has no titlebar to hang a
-    /// `.toolbar` on, so the grouping is by spacing instead — see
-    /// `actionButton` for why the actions are three circles rather than one
-    /// unioned capsule.
+    /// Three groups, matching a toolbar's rhythm: window controls, the field,
+    /// the actions. That is not a taste call — in a real toolbar *adjacent*
+    /// `ToolbarItem`s share one glass capsule and `ToolbarSpacer` breaks them
+    /// apart, which is why Safari reads as three groups. A borderless panel has
+    /// no titlebar to hang a `.toolbar` on, so it is reproduced by hand.
+    ///
+    /// The sizes are measured, not chosen. Safari's toolbar on this machine
+    /// reports 52pt tall through the accessibility API, and every control in it
+    /// measures 36pt tall off a screenshot — the sidebar capsule, the
+    /// back/forward capsule, the address field and the actions cluster, all the
+    /// same. An earlier pass used 24pt and read as a toy.
     private var header: some View {
         GlassEffectContainer(spacing: PanelMetrics.headerGlassSpacing) {
             HStack(spacing: PanelMetrics.headerGlassSpacing) {
-                // Bare, like Safari's. Traffic lights are not glass controls.
+                // Bare, like Safari's. Traffic lights are not glass controls,
+                // and being the real ones they come out at the system's 14pt.
                 WindowButtons(onClose: onClose)
                     .fixedSize()
 
                 Spacer(minLength: PanelMetrics.headerGlassSpacing)
 
-                HStack(spacing: PanelMetrics.headerClusterSpacing) {
-                    actionButton(selectedClip?.isPinned == true ? "pin.slash" : "pin",
-                                 help: selectedClip?.isPinned == true
-                                     ? "Unpin selected clipping (Command-P)"
-                                     : "Pin selected clipping (Command-P)",
-                                 action: pinSelected)
-                        .keyboardShortcut("p", modifiers: .command)
-
-                    // Not `role: .destructive` — a permanently red glyph in
-                    // chrome is not a Mac convention. Red belongs on the context
-                    // menu's Delete, where AppKit paints it.
-                    actionButton("trash",
-                                 help: "Delete selected clipping (Command-Delete)",
-                                 action: deleteSelected)
-                        .keyboardShortcut(.delete, modifiers: .command)
-
-                    // A button rather than a `Menu`: everything the old gear menu
-                    // held — launch at login and the two permission shortcuts —
-                    // lives in Settings now, and a preference in two places is a
-                    // preference that disagrees with itself.
-                    SettingsLink {
-                        Image(systemName: "gearshape")
-                    }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .help("Settings")
-                }
+                actionCluster
             }
             // Centred on the header rather than laid out between the two sides:
-            // between `Spacer`s the field would drift, because the action cluster
-            // is wider than the traffic lights.
+            // between `Spacer`s the field would drift, because the action
+            // cluster is wider than the traffic lights.
             .overlay { searchField }
         }
+        .frame(height: PanelMetrics.headerControl)
     }
 
-    /// One action, as the system's own glass button.
+    /// The three actions in **one** capsule, the way a toolbar groups adjacent
+    /// items.
     ///
-    /// `.buttonStyle(.glass)` rather than a hand-applied `glassEffect`, and the
-    /// reason is measured rather than preferred. Apple's toolbar groups adjacent
-    /// items into one capsule, and the documented way to reproduce that by hand
-    /// is `glassEffectUnion(id:namespace:)` — so that is what this was. But a
-    /// raw `.glassEffect(.regular)` renders essentially *nothing* at rest over
-    /// this panel's light material: only the button under the pointer showed,
-    /// because the interactive highlight was doing all the drawing. The system
-    /// button style paints a visible control at rest, which is the whole job.
-    ///
-    /// The cost is that native glass buttons do not union, so these read as three
-    /// circles rather than Safari's single capsule. That is the honest trade: a
-    /// visible control that matches its neighbours beats an invisible one that
-    /// groups correctly.
-    ///
-    /// `.buttonBorderShape(.circle)` because `.glass` defaults to a rounded
-    /// rectangle for a small label, and an icon-only control should be a circle —
-    /// the rounded rectangle reads as a button whose text got cut off.
+    /// Hand-built rather than three `.buttonStyle(.glass)` buttons, and the
+    /// reason is measured. Native glass buttons do not participate in
+    /// `glassEffectUnion`, so three of them can never merge into one shape. A
+    /// raw `.glassEffect` can — but at 24pt circles it rendered essentially
+    /// nothing at rest over this panel's light material, with only the
+    /// pointer's interactive highlight doing any drawing. At 36pt, which is the
+    /// real toolbar metric, the capsule is plainly visible. So the size that is
+    /// correct is also the size that makes the correct construction work.
+    private var actionCluster: some View {
+        HStack(spacing: 0) {
+            actionButton(selectedClip?.isPinned == true ? "pin.slash" : "pin",
+                         help: selectedClip?.isPinned == true
+                             ? "Unpin selected clipping (Command-P)"
+                             : "Pin selected clipping (Command-P)",
+                         action: pinSelected)
+                .keyboardShortcut("p", modifiers: .command)
+
+            // Not `role: .destructive` — a permanently red glyph in chrome is
+            // not a Mac convention. Red belongs on the context menu's Delete,
+            // where AppKit paints it.
+            actionButton("trash",
+                         help: "Delete selected clipping (Command-Delete)",
+                         action: deleteSelected)
+                .keyboardShortcut(.delete, modifiers: .command)
+
+            // A button rather than a `Menu`: everything the old gear menu held —
+            // launch at login and the two permission shortcuts — is in Settings
+            // now, and a preference in two places is one that disagrees with
+            // itself. It also sidesteps `Menu` refusing to render `.glass` at
+            // the same strength as a button.
+            SettingsLink {
+                Image(systemName: "gearshape")
+                    .font(.system(size: PanelMetrics.headerGlyph))
+                    .frame(width: PanelMetrics.headerControl,
+                           height: PanelMetrics.headerControl)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.borderless)
+            .help("Settings")
+        }
+        .foregroundStyle(.primary)
+        .glassEffect(.regular.interactive(), in: .capsule)
+    }
+
     private func actionButton(_ symbol: String,
                               help: String,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
+                .font(.system(size: PanelMetrics.headerGlyph))
+                .frame(width: PanelMetrics.headerControl,
+                       height: PanelMetrics.headerControl)
+                .contentShape(.rect)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.borderless)
         .disabled(selection == nil)
         .help(help)
     }
 
-    /// A glass capsule with the glyph inside it, rather than `.roundedBorder`.
+    /// A glass capsule, not `.roundedBorder`.
     ///
     /// The stock rounded-border style draws an opaque white rectangle with a hard
-    /// edge, which is the single most out-of-place thing that can sit on a
-    /// blurred panel — it was what made the corner beside it look wrong.
+    /// edge, which is the most out-of-place thing that can sit on a blurred
+    /// panel — it was what made the corner beside it look wrong.
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
+                .font(.system(size: PanelMetrics.headerGlyph))
                 .foregroundStyle(.secondary)
 
             TextField("Search", text: $search)
@@ -572,7 +582,7 @@ struct ClipboardPanelView: View {
             }
         }
         .font(.body)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 12)
         .frame(width: PanelMetrics.searchWidth, height: PanelMetrics.headerControl)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
