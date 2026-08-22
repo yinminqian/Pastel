@@ -37,10 +37,29 @@ struct ClipboardMonitorLogicTests {
         #expect(ClipboardMonitor.kind(for: ["public.tiff", "public.rtf"]) == .image)
     }
 
-    @Test("Rich text wins over plain text")
-    func richTextBeatsPlain() {
-        #expect(ClipboardMonitor.kind(for: ["public.rtf", "public.utf8-plain-text"]) == .richText)
-        #expect(ClipboardMonitor.kind(for: ["public.html", "public.utf8-plain-text"]) == .richText)
+    @Test("Plain text wins over a styled copy of the same thing")
+    func plainTextBeatsStyling() {
+        // A terminal puts HTML on the pasteboard next to the characters, which
+        // used to label a one-line shell command "Rich Text".
+        #expect(ClipboardMonitor.kind(for: ["public.rtf", "public.utf8-plain-text"]) == .text)
+        #expect(ClipboardMonitor.kind(for: ["public.html", "public.utf8-plain-text"]) == .text)
+        #expect(ClipboardMonitor.kind(for: ["com.apple.flat-rtfd", "public.utf8-plain-text",
+                                            "public.html"]) == .text)
+    }
+
+    @Test("Rich text is the kind only when there is no plain text to fall back on")
+    func richTextWithoutPlain() {
+        #expect(ClipboardMonitor.kind(for: ["public.rtf"]) == .richText)
+        #expect(ClipboardMonitor.kind(for: ["public.html"]) == .richText)
+        // The real RTFD identifier, which is not `public.rtfd`.
+        #expect(ClipboardMonitor.kind(for: ["com.apple.flat-rtfd"]) == .richText)
+    }
+
+    @Test("A URL still classifies as a link even when a styled copy rides along")
+    func linkSurvivesStyling() {
+        let kind = ClipboardMonitor.kind(for: ["public.html", "public.utf8-plain-text"],
+                                        preview: "https://example.com/a")
+        #expect(kind == .link)
     }
 
     @Test("Plain text alone is text")
@@ -181,5 +200,94 @@ struct ClipboardMonitorLogicTests {
         #expect(ClipboardMonitor.isImageType("public.tiff"))
         #expect(!ClipboardMonitor.isImageType("public.utf8-plain-text"))
         #expect(!ClipboardMonitor.isImageType("public.file-url"))
+    }
+}
+
+@MainActor
+struct LinkDetectionTests {
+
+    @Test("A bare web URL is a link", arguments: [
+        "https://developer.apple.com/documentation/appkit/nspasteboard",
+        "http://example.com",
+        "https://example.com/a/b?q=1#frag",
+    ])
+    func webURLsAreLinks(text: String) {
+        #expect(ClipboardMonitor.isLink(text))
+        #expect(ClipboardMonitor.kind(for: ["public.utf8-plain-text"], preview: text) == .link)
+    }
+
+    @Test("Surrounding whitespace does not stop it being a link")
+    func whitespaceIsTrimmed() {
+        #expect(ClipboardMonitor.isLink("  https://example.com\n"))
+    }
+
+    @Test("A paragraph that merely mentions a URL is still text")
+    func prosePreservedAsText() {
+        // Rendering this as a link card would hide the text the user copied.
+        let text = "See https://example.com for details"
+        #expect(!ClipboardMonitor.isLink(text))
+        #expect(ClipboardMonitor.kind(for: ["public.utf8-plain-text"], preview: text) == .text)
+    }
+
+    @Test("Non-web schemes are not links", arguments: [
+        "file:///Users/me/x.txt",
+        "mailto:someone@example.com",
+        "paster://pause",
+        "ftp://example.com",
+    ])
+    func nonWebSchemesRejected(text: String) {
+        // A file URL has its own kind, and an app scheme is not something to
+        // render as a web link.
+        #expect(!ClipboardMonitor.isLink(text))
+    }
+
+    @Test("Malformed or hostless input is not a link", arguments: [
+        "", "   ", "https://", "https://nodot", "not a url at all", "example.com",
+    ])
+    func malformedRejected(text: String) {
+        #expect(!ClipboardMonitor.isLink(text))
+    }
+
+    @Test("A file URL clipping stays a file even when the text parses as a URL")
+    func fileTypeWinsOverLinkDetection() {
+        let kind = ClipboardMonitor.kind(for: ["public.file-url", "public.utf8-plain-text"],
+                                        preview: "file:///tmp/x.pdf")
+        #expect(kind == .fileURL)
+    }
+
+    @Test("An absurdly long single token is not treated as a link")
+    func lengthIsBounded() {
+        #expect(!ClipboardMonitor.isLink("https://example.com/" + String(repeating: "a", count: 4000)))
+    }
+}
+
+@MainActor
+struct MonospacePreviewTests {
+
+    private func item(_ preview: String) -> ClipItem {
+        ClipItem(kind: .text, fingerprint: "x", previewText: preview)
+    }
+
+    @Test("Indented lines mean whitespace carries meaning, so the preview is monospaced")
+    func indentedTextIsCode() {
+        #expect(item("func x() {\n    return 1\n}").prefersMonospacedPreview)
+        #expect(item("a\n\tb").prefersMonospacedPreview)
+    }
+
+    @Test("Ordinary prose is not monospaced just because it has brackets or newlines")
+    func proseIsNotCode() {
+        // Guessing from punctuation density would mono-space this.
+        #expect(!item("Hello (world).\nSecond line here.").prefersMonospacedPreview)
+        #expect(!item("One line only { with braces }").prefersMonospacedPreview)
+    }
+
+    @Test("A single line is never monospaced")
+    func singleLineIsNeverCode() {
+        #expect(!item("    indented but one line").prefersMonospacedPreview)
+    }
+
+    @Test("No preview text means no monospacing decision to make")
+    func nilPreview() {
+        #expect(!ClipItem(kind: .image, fingerprint: "y").prefersMonospacedPreview)
     }
 }

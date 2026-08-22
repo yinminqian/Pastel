@@ -78,6 +78,7 @@ struct ClipItemTests {
 
         #expect(converted == 1)
         #expect(item.payload != nil)
+        #expect(item.contentLength == 3)
         #expect(item.representations.count == 2)
         #expect(item.legacyRepresentations.isEmpty)
         #expect(try context.fetchCount(FetchDescriptor<ClipRepresentation>()) == 0)
@@ -97,10 +98,12 @@ struct ClipItemTests {
         #expect(PayloadBackfill.run(in: context) == 0)
         #expect(PayloadBackfill.run(in: context) == 0)
         #expect(item.representations.count == 1)
+        // Filled in the same pass as the payload fold, counted once.
+        #expect(item.contentLength == 1)
     }
 
-    @Test("An item that already has a payload is left alone by the backfill")
-    func backfillSkipsConvertedItems() throws {
+    @Test("An item with a payload is not re-folded, though a missing length is still filled")
+    func backfillDoesNotRefoldConvertedItems() throws {
         let context = try inMemoryContext()
         let item = ClipItem(kind: .text, fingerprint: "already")
         context.insert(item)
@@ -111,7 +114,59 @@ struct ClipItemTests {
         item.payload = payload
         try context.save()
 
-        #expect(PayloadBackfill.run(in: context) == 0)
+        // One conversion, because `contentLength` still needs filling — but
+        // the payload itself is untouched, which is what "not re-folded" means.
+        #expect(PayloadBackfill.run(in: context) == 1)
+        #expect(item.representations.count == 1)
         #expect(item.representations.first?.typeIdentifier == "public.utf8-plain-text")
+        #expect(item.contentLength == 3)
+        // And now there is nothing left to do.
+        #expect(PayloadBackfill.run(in: context) == 0)
+    }
+}
+
+@MainActor
+struct FormatSummaryTests {
+
+    private func item(_ types: [String]) throws -> ClipItem {
+        let container = try ModelContainer(
+            for: Schema(versionedSchema: ClipSchema.self),
+            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+        )
+        let context = ModelContext(container)
+        let clip = ClipItem(kind: .text, fingerprint: types.joined())
+        context.insert(clip)
+        let payload = ClipPayload(archive: try ClipArchive(
+            representations: types.map { .init(typeIdentifier: $0, data: Data("x".utf8)) }
+        ).encoded())
+        context.insert(payload)
+        clip.payload = payload
+        try context.save()
+        return clip
+    }
+
+    @Test("Formats are named in plain language, in the order stored")
+    func namesFormats() throws {
+        let clip = try item(["public.utf8-plain-text", "public.html", "com.apple.flat-rtfd"])
+        #expect(clip.formatSummary == "plain text, HTML, RTF")
+    }
+
+    @Test("Equivalent identifiers collapse to one name")
+    func collapsesDuplicates() throws {
+        // A terminal offers three spellings of the same characters; listing
+        // "plain text, plain text, plain text" would be noise.
+        let clip = try item(["public.utf8-plain-text", "public.text", "public.utf16-plain-text"])
+        #expect(clip.formatSummary == "plain text")
+    }
+
+    @Test("Unrecognised private types are left out rather than shown raw")
+    func skipsUnknownTypes() throws {
+        let clip = try item(["com.example.private", "public.png"])
+        #expect(clip.formatSummary == "PNG")
+    }
+
+    @Test("Nothing recognisable means no summary rather than an empty row")
+    func nilWhenNothingKnown() throws {
+        #expect(try item(["com.example.private"]).formatSummary == nil)
     }
 }

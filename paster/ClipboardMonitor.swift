@@ -7,6 +7,7 @@
 
 import AppKit
 import CryptoKit
+import QuickLookThumbnailing
 import SwiftData
 
 /// Watches the general pasteboard and records what lands on it.
@@ -234,10 +235,13 @@ final class ClipboardMonitor {
             return
         }
 
+        let preview = Self.previewText(from: representations)
+        let kind = Self.kind(for: seenTypes, preview: preview)
         let item = ClipItem(
-            kind: Self.kind(for: seenTypes),
+            kind: kind,
             fingerprint: fingerprint,
-            previewText: Self.previewText(from: representations),
+            previewText: preview,
+            contentLength: Self.contentLength(of: representations, kind: kind),
             thumbnailData: Self.thumbnail(from: representations),
             sourceBundleID: origin,
             isFromRemoteDevice: isRemote
@@ -266,6 +270,51 @@ final class ClipboardMonitor {
         // losing something the user cannot get back.
         try? context.save()
         prune()
+
+        // A copied file gets a real preview of its contents rather than a
+        // generic type icon — a copied screenshot should look like the
+        // screenshot. Kicked off after the save because QuickLook is async and
+        // the clipping must not wait on it.
+        if item.kind == .fileURL { generateFileThumbnail(for: item) }
+    }
+
+    /// Renders a QuickLook thumbnail for a copied file into `thumbnailData`.
+    ///
+    /// Stored rather than generated on demand, for two reasons: a card must not
+    /// do async work while scrolling, and a clipping is a record of what was
+    /// copied — if the file is later moved or deleted, the thumbnail should
+    /// still show what the user put on the clipboard.
+    private func generateFileThumbnail(for item: ClipItem) {
+        guard let text = item.previewText,
+              let url = URL(string: text),
+              url.isFileURL,
+              FileManager.default.fileExists(atPath: url.path)
+        else { return }
+
+        let request = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: 160, height: 160),
+            scale: 2,
+            representationTypes: .all
+        )
+        let identifier = item.persistentModelID
+
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] rep, _ in
+            guard let rep else { return }
+            let png = NSBitmapImageRep(cgImage: rep.cgImage)
+                .representation(using: .png, properties: [:])
+            guard let png else { return }
+            Task { @MainActor [weak self] in
+                // Re-fetched by identifier rather than captured: a model object
+                // must not cross the callback's actor boundary, and the item
+                // may have been pruned while QuickLook was working.
+                guard let self,
+                      let stored = self.context.model(for: identifier) as? ClipItem
+                else { return }
+                stored.thumbnailData = png
+                try? self.context.save()
+            }
+        }
     }
 
     private func prune() {
@@ -310,15 +359,46 @@ final class ClipboardMonitor {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    static func kind(for types: Set<String>) -> ClipKind {
+    static func kind(for types: Set<String>, preview: String? = nil) -> ClipKind {
         if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue) { return .fileURL }
         if types.contains(NSPasteboard.PasteboardType.png.rawValue)
             || types.contains(NSPasteboard.PasteboardType.tiff.rawValue) { return .image }
+        // Plain text wins over a styled representation of the same thing.
+        //
+        // Checked before the rich types on purpose: a terminal puts HTML on the
+        // pasteboard alongside the characters, so "contains HTML" labelled a
+        // one-line shell command "Rich Text". If plain text is there, that is
+        // what the user copied and what they see. The styled representations
+        // are still stored, and listed as formats in the detail pane, which is
+        // information rather than a misleading category.
+        if types.contains(NSPasteboard.PasteboardType.string.rawValue) {
+            return isLink(preview) ? .link : .text
+        }
+        // Rich only when there is no plain text at all to fall back on.
         if types.contains(NSPasteboard.PasteboardType.rtf.rawValue)
             || types.contains(NSPasteboard.PasteboardType.rtfd.rawValue)
             || types.contains(NSPasteboard.PasteboardType.html.rawValue) { return .richText }
-        if types.contains(NSPasteboard.PasteboardType.string.rawValue) { return .text }
         return .other
+    }
+
+    /// A clipping is a link only if the whole thing is one web URL.
+    ///
+    /// Checked against the content rather than the pasteboard's own
+    /// `public.url` type, because copying a URL out of a text field offers only
+    /// plain text. Deliberately strict: a paragraph that merely mentions a URL
+    /// is still a paragraph, and rendering it as a link card would hide the
+    /// text the user actually copied.
+    static func isLink(_ preview: String?) -> Bool {
+        guard let trimmed = preview?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.count <= 2048,
+              !trimmed.contains(where: \.isWhitespace),
+              let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              let host = url.host, host.contains(".")
+        else { return false }
+        return true
     }
 
     static func isImageType(_ identifier: String) -> Bool {
@@ -362,6 +442,21 @@ final class ClipboardMonitor {
     static func thumbnail(from reps: [(type: String, data: Data)]) -> Data? {
         guard let image = reps.first(where: { isImageType($0.type) })?.data else { return nil }
         return reencodedPNG(from: image, maxPixel: 320)
+    }
+
+    /// Characters for text-like clippings, bytes for binary ones — one field,
+    /// disambiguated by the kind.
+    static func contentLength(of reps: [(type: String, data: Data)], kind: ClipKind) -> Int {
+        switch kind {
+        case .text, .richText, .link:
+            let plain = NSPasteboard.PasteboardType.string.rawValue
+            guard let data = reps.first(where: { $0.type == plain })?.data,
+                  let text = String(data: data, encoding: .utf8)
+            else { return 0 }
+            return text.count
+        case .image, .fileURL, .other:
+            return reps.reduce(0) { $0 + $1.data.count }
+        }
     }
 
     static func previewText(from reps: [(type: String, data: Data)]) -> String? {

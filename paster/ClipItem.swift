@@ -16,6 +16,10 @@ enum ClipKind: String, Codable, CaseIterable {
     case richText
     case image
     case fileURL
+    /// Plain text that is a single URL. Its own kind because a link wants an
+    /// entirely different card — the host read large, the path small — rather
+    /// than a line of wrapped monospace.
+    case link
     case other
 }
 
@@ -90,6 +94,14 @@ final class ClipItem {
     /// `description` — SwiftData explicitly disallows that property name.
     var previewText: String?
 
+    /// Characters for text-like clippings, bytes for binary ones — the kind
+    /// tells them apart, so one field does for both.
+    ///
+    /// Stored rather than counted from `previewText`, which is truncated at 500
+    /// characters: counting the preview would confidently report "500
+    /// characters" for anything longer, which is worse than showing nothing.
+    var contentLength: Int = 0
+
     /// Small PNG derived at capture time, for image cards.
     ///
     /// Exists so drawing a card never touches the payload: a grid of
@@ -124,6 +136,7 @@ final class ClipItem {
          kind: ClipKind,
          fingerprint: String,
          previewText: String? = nil,
+         contentLength: Int = 0,
          thumbnailData: Data? = nil,
          sourceBundleID: String? = nil,
          isFromRemoteDevice: Bool = false) {
@@ -131,9 +144,89 @@ final class ClipItem {
         self.kind = kind
         self.fingerprint = fingerprint
         self.previewText = previewText
+        self.contentLength = contentLength
         self.thumbnailData = thumbnailData
         self.sourceBundleID = sourceBundleID
         self.isFromRemoteDevice = isFromRemoteDevice
+    }
+
+    /// The kind spelled out.
+    ///
+    /// A word rather than a glyph: at this size a label reads instantly and
+    /// unambiguously, where a symbol has to be learned, and the metadata band
+    /// is already carrying the app icon as its one piece of imagery.
+    var kindLabel: String {
+        switch kind {
+        case .text: "Text"
+        case .richText: "Rich Text"
+        case .image: "Image"
+        case .fileURL: "File"
+        case .link: "Link"
+        case .other: "Data"
+        }
+    }
+
+    /// A concrete datum for the card's footer.
+    ///
+    /// Deliberately a measurement rather than decoration — it is the kind of
+    /// detail that makes a card read as a tool rather than as a mockup, and it
+    /// is genuinely useful when deciding between two similar clippings.
+    var lengthSummary: String? {
+        guard contentLength > 0 else { return nil }
+        switch kind {
+        case .text, .richText, .link:
+            return "\(contentLength.formatted()) characters"
+        case .image, .fileURL, .other:
+            return contentLength.formatted(.byteCount(style: .file))
+        }
+    }
+
+    /// The stored representations in plain language, for the detail pane.
+    ///
+    /// Concrete and occasionally load-bearing: knowing a clipping still carries
+    /// its RTF is the difference between pasting it into a document and pasting
+    /// it as plain text on purpose.
+    var formatSummary: String? {
+        let names: [String: String] = [
+            "public.utf8-plain-text": "plain text",
+            "public.utf16-plain-text": "plain text",
+            "public.text": "plain text",
+            "public.rtf": "RTF",
+            // The real identifier for RTFD; `public.rtfd` does not exist.
+            "com.apple.flat-rtfd": "RTF",
+            "public.html": "HTML",
+            "public.png": "PNG",
+            "public.tiff": "TIFF",
+            "public.file-url": "file",
+            "public.url": "URL",
+        ]
+        var seen: [String] = []
+        for representation in representations {
+            guard let name = names[representation.typeIdentifier],
+                  !seen.contains(name) else { continue }
+            seen.append(name)
+        }
+        return seen.isEmpty ? nil : seen.joined(separator: ", ")
+    }
+
+    /// Whether the preview should be rendered monospaced.
+    ///
+    /// Derived rather than stored, and deliberately a narrow test: a line that
+    /// begins with indentation is a line where whitespace carries meaning, so
+    /// the text is code, a diff, or tabular output. Guessing from punctuation
+    /// density would mono-space ordinary prose that happens to contain
+    /// brackets.
+    var prefersMonospacedPreview: Bool {
+        guard let text = previewText, text.contains("\n") else { return false }
+        return text.split(separator: "\n", omittingEmptySubsequences: true).contains {
+            $0.hasPrefix("  ") || $0.hasPrefix("\t")
+        }
+    }
+
+    /// The URL this clipping is, when it is one.
+    var linkURL: URL? {
+        guard kind == .link, let text = previewText else { return nil }
+        return URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Decoded representations, ready to write back to the pasteboard.
@@ -211,10 +304,13 @@ enum ClipSchema: VersionedSchema {
 /// legacy rows rather than being emptied — losing the payload would leave a
 /// card that pastes nothing.
 enum PayloadBackfill {
+    /// - Returns: the number of clippings changed. Counted per item, not per
+    ///   field: an item needing both the payload fold and the length is one
+    ///   conversion, and callers use this to decide whether to save.
     @discardableResult
     static func run(in context: ModelContext) -> Int {
         var descriptor = FetchDescriptor<ClipItem>(
-            predicate: #Predicate { $0.payload == nil }
+            predicate: #Predicate { $0.payload == nil || $0.contentLength == 0 }
         )
         descriptor.relationshipKeyPathsForPrefetching = [\.legacyRepresentations]
 
@@ -222,26 +318,53 @@ enum PayloadBackfill {
             return 0
         }
 
-        var converted = 0
+        var changed = 0
         for item in candidates {
-            let legacy = item.legacyRepresentations
-            guard !legacy.isEmpty else { continue }
+            var touched = false
 
-            let archive = ClipArchive(
-                representations: legacy.map {
-                    ClipArchive.Representation(typeIdentifier: $0.typeIdentifier, data: $0.data)
+            // Fold first: computing the length reads the payload.
+            if item.payload == nil {
+                let legacy = item.legacyRepresentations
+                if !legacy.isEmpty,
+                   let encoded = try? ClipArchive(
+                       representations: legacy.map {
+                           ClipArchive.Representation(typeIdentifier: $0.typeIdentifier,
+                                                      data: $0.data)
+                       }
+                   ).encoded() {
+                    let payload = ClipPayload(archive: encoded)
+                    context.insert(payload)
+                    item.payload = payload
+                    legacy.forEach(context.delete)
+                    touched = true
                 }
-            )
-            guard let encoded = try? archive.encoded() else { continue }
+            }
 
-            let payload = ClipPayload(archive: encoded)
-            context.insert(payload)
-            item.payload = payload
-            legacy.forEach(context.delete)
-            converted += 1
+            if item.contentLength == 0 {
+                item.contentLength = length(of: item)
+                if item.contentLength > 0 { touched = true }
+            }
+
+            if touched { changed += 1 }
         }
 
-        if converted > 0 { try? context.save() }
-        return converted
+        if changed > 0 { try? context.save() }
+        return changed
+    }
+
+    /// Characters for text-like clippings, bytes for binary ones.
+    static func length(of item: ClipItem) -> Int {
+        switch item.kind {
+        case .text, .richText, .link:
+            let plain = item.representations.first {
+                $0.typeIdentifier == "public.utf8-plain-text"
+            }
+            guard let data = plain?.data, let text = String(data: data, encoding: .utf8) else {
+                return 0
+            }
+            return text.count
+        case .image, .fileURL, .other:
+            return item.representations.reduce(0) { $0 + $1.data.count }
+        }
     }
 }
