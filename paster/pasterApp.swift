@@ -76,8 +76,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let launchAtLogin = LaunchAtLogin()
     let settings = AppSettings()
 
+    /// Broadcast by a second copy that is about to quit, so the copy already
+    /// running is the one that answers.
+    static let showRequest = Notification.Name("com.minqian.paster.show-panel")
+
     @MainActor
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A second copy hands over and quits.
+        //
+        // Running twice is broken by construction, not merely untidy: the
+        // hotkey is an *exclusive* system-wide claim, so one copy gets it and
+        // the other shows a conflict warning naming a shortcut it is itself
+        // holding; both poll the pasteboard and write the same store; and two
+        // panels answer to one gesture, which looks exactly like the panel
+        // re-summoning itself.
+        if handOffToRunningCopy() { return }
+
         guard let container = makeContainer() else { return }
         self.container = container
 
@@ -110,9 +124,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mcp.apply()
         self.mcp = mcp
 
+        // A second copy asking us to take over.
+        DistributedNotificationCenter.default().addObserver(
+            forName: Self.showRequest, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.showPanel() }
+        }
+
         // Show once at launch, otherwise a fresh install looks like it did
         // nothing at all.
         controller.show()
+    }
+
+    /// - Returns: true when another copy is already running, in which case this
+    ///   one has asked it to show its panel and is terminating.
+    @MainActor
+    private func handOffToRunningCopy() -> Bool {
+        // Not when hosting tests. The test bundle is injected into this very
+        // app, so the guard would find the user's installed copy, hand over and
+        // terminate — killing the host before XCTest can connect, which fails
+        // the whole suite with "the test runner exited before establishing
+        // connection". The guard exists for a *person* launching a second copy;
+        // a test host is not that.
+        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
+              NSClassFromString("XCTestCase") == nil
+        else { return false }
+
+        guard let identifier = Bundle.main.bundleIdentifier else { return false }
+        let mine = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication
+            .runningApplications(withBundleIdentifier: identifier)
+            .filter { $0.processIdentifier != mine && !$0.isTerminated }
+        guard !others.isEmpty else { return false }
+
+        // Hand the gesture over rather than dying silently: someone launching
+        // the app a second time wants to *see* it, and a launch that appears to
+        // do nothing reads as a crash.
+        //
+        // A distributed notification rather than the `paster://` scheme, which
+        // `NSWorkspace.open` could route straight back to this copy.
+        DistributedNotificationCenter.default().postNotificationName(
+            Self.showRequest, object: nil, userInfo: nil, deliverImmediately: true
+        )
+        NSApp.terminate(nil)
+        return true
     }
 
     @MainActor
