@@ -31,7 +31,12 @@ final class PermissionsService {
     /// "something needs your attention" banner, and a silently dead hotkey on
     /// an app whose window is normally summoned by it is worse than any
     /// permission problem.
-    var hotKeyConflict = false
+    /// The display string of a shortcut another app already owns, or `nil`.
+    ///
+    /// Carries the combination rather than a bare flag so the warning can name
+    /// it — the shortcut is configurable now, so this is something the user can
+    /// act on, and "a shortcut is taken" does not say which.
+    var hotKeyConflict: String?
 
     /// No `deinit` unregistering this. The service is created once in
     /// `AppDelegate` and injected into the panel, so it lives for the process

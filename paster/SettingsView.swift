@@ -13,6 +13,10 @@ struct SettingsView: View {
     var settings: AppSettings
     var permissions: PermissionsService
     var launchAtLogin: LaunchAtLogin
+    /// Optional because the binding needs the store, which is opened after the
+    /// scene graph is built. In practice it is always there by the time a
+    /// window appears; the pane says so plainly if it is not.
+    var hotKey: HotKeyBinding?
 
     var body: some View {
         TabView {
@@ -21,10 +25,73 @@ struct SettingsView: View {
                             launchAtLogin: launchAtLogin)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
+            ShortcutSettings(permissions: permissions, hotKey: hotKey)
+                .tabItem { Label("Shortcut", systemImage: "command") }
+
             PrivacySettings(settings: settings)
                 .tabItem { Label("Privacy", systemImage: "hand.raised") }
         }
         .frame(width: 480, height: 340)
+    }
+}
+
+// MARK: - Shortcut
+
+private struct ShortcutSettings: View {
+    var permissions: PermissionsService
+    var hotKey: HotKeyBinding?
+
+    var body: some View {
+        Form {
+            Section("Show Clipboard") {
+                if let hotKey {
+                    LabeledContent("Shortcut") {
+                        HStack(spacing: 8) {
+                            ShortcutRecorder(
+                                shortcut: hotKey.shortcut,
+                                onChange: { hotKey.record($0) },
+                                onRecordingChange: { hotKey.setRecording($0) }
+                            )
+                            .fixedSize()
+                            Button("Restore Default") { hotKey.resetToDefault() }
+                                .disabled(hotKey.isDefault)
+                        }
+                    }
+                    Text(hotKey.isRecording
+                         ? "Hold at least one modifier, then press a key. Escape cancels."
+                         : "Click the field, then press the combination you want.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Still starting up.").foregroundStyle(.secondary)
+                }
+            }
+
+            if let taken = permissions.hotKeyConflict {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(taken) is already taken")
+                            // Named because there is no API to ask which app
+                            // holds a Carbon hotkey — only whether the claim
+                            // succeeded — so the app cannot be more specific
+                            // than this, and pretending otherwise would send
+                            // the user looking for a name that is a guess.
+                            Text("Another app claimed it first. Pick a different combination above.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+
+            Section {
+                Text("The shortcut works everywhere, including over full-screen apps. While it is held by this app no other app receives it, which is why it is worth choosing one nothing else uses.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

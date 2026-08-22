@@ -419,7 +419,7 @@ struct ClipboardPanelView: View {
     // MARK: Attention banner
 
     private var needsAttention: Bool {
-        permissions.hotKeyConflict
+        permissions.hotKeyConflict != nil
             || permissions.needsPasteboardAttention
             || !permissions.canPasteDirectly
     }
@@ -435,7 +435,12 @@ struct ClipboardPanelView: View {
                 Text(attentionDetail).font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
-            if !permissions.hotKeyConflict {
+            if permissions.hotKeyConflict != nil {
+                // A taken shortcut is fixed in this app's own settings, not in
+                // System Settings, so it gets a different destination.
+                SettingsLink { Text("Change Shortcut") }
+                    .controlSize(.small)
+            } else {
                 Button("Open Settings") {
                     if permissions.needsPasteboardAttention {
                         permissions.openPasteboardSettings()
@@ -452,15 +457,15 @@ struct ClipboardPanelView: View {
 
     private var attentionTitle: String {
         if permissions.needsPasteboardAttention { "Allow clipboard access to keep saving copies" }
-        else if permissions.hotKeyConflict { "Command-Shift-V is already taken" }
+        else if let taken = permissions.hotKeyConflict { "\(taken) is already taken" }
         else { "Grant accessibility access to paste directly" }
     }
 
     private var attentionDetail: String {
         if permissions.needsPasteboardAttention {
             "macOS asks before an app may read the clipboard. Set this app to Allow."
-        } else if permissions.hotKeyConflict {
-            "Click the app's Dock icon to reopen the panel until the conflict is resolved."
+        } else if permissions.hotKeyConflict != nil {
+            "Another app claimed it first. Pick a different one, or click the Dock icon to open the panel."
         } else {
             "Without it, clicking a card copies instead of pasting — press Command-V yourself."
         }

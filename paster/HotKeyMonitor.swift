@@ -12,13 +12,13 @@ import Carbon.HIToolbox
 ///
 /// The alternative, `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)`,
 /// was rejected on two counts: it needs Accessibility permission, and it can
-/// only *observe* the keystroke — the frontmost app still receives it, so ⌘⇧V
-/// would fire this panel and paste-and-match-style at the same time.
-/// `RegisterEventHotKey` claims the combination exclusively and needs no
+/// only *observe* the keystroke — the frontmost app still receives it, so the
+/// combination would fire this panel and whatever it means in the front app at
+/// the same time. `RegisterEventHotKey` claims it exclusively and needs no
 /// permission at all.
 ///
-/// Note that claiming ⌘⇧V does take it away from every other app for as long
-/// as this one runs; that combination is paste-and-match-style in most editors.
+/// Note that claiming a combination takes it away from every other app for as
+/// long as this one runs, which is why the user gets to choose which one.
 @MainActor
 final class HotKeyMonitor {
     private var hotKeyRef: EventHotKeyRef?
@@ -33,11 +33,18 @@ final class HotKeyMonitor {
 
     var isRegistered: Bool { hotKeyRef != nil && registrationStatus == noErr }
 
-    /// - Parameters:
-    ///   - keyCode: a `kVK_*` virtual key code.
-    ///   - modifiers: Carbon modifier mask, e.g. `cmdKey | shiftKey`.
-    init(keyCode: UInt32, modifiers: UInt32, onFire: @escaping () -> Void) {
+    init(onFire: @escaping () -> Void) {
         self.onFire = onFire
+    }
+
+    /// Registers `shortcut`, replacing whatever was registered before.
+    ///
+    /// Tears the old registration down first: Carbon will happily hold two hot
+    /// keys at once, and the panel would then still answer to a combination the
+    /// user thought they had changed.
+    @discardableResult
+    func register(_ shortcut: Shortcut) -> OSStatus {
+        unregister()
 
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                  eventKind: UInt32(kEventHotKeyPressed))
@@ -53,12 +60,26 @@ final class HotKeyMonitor {
             return noErr
         }, 1, &spec, context, &eventHandler)
 
-        registrationStatus = RegisterEventHotKey(keyCode,
-                                                modifiers,
-                                                EventHotKeyID(signature: OSType(0x50535452), id: 1),
-                                                GetEventDispatcherTarget(),
-                                                0,
-                                                &hotKeyRef)
+        registrationStatus = RegisterEventHotKey(shortcut.keyCode,
+                                                 shortcut.carbonModifiers,
+                                                 EventHotKeyID(signature: OSType(0x50535452),
+                                                               id: 1),
+                                                 GetEventDispatcherTarget(),
+                                                 0,
+                                                 &hotKeyRef)
+        return registrationStatus
+    }
+
+    func unregister() {
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
+        }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
+        }
+        registrationStatus = noErr
     }
 
     /// `isolated deinit` because the Carbon handles are not `Sendable` and a
@@ -66,7 +87,6 @@ final class HotKeyMonitor {
     /// handler off the main thread is exactly the kind of thing that works
     /// until it does not.
     isolated deinit {
-        if let hotKeyRef { UnregisterEventHotKey(hotKeyRef) }
-        if let eventHandler { RemoveEventHandler(eventHandler) }
+        unregister()
     }
 }

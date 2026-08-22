@@ -20,7 +20,8 @@ struct pasterApp: App {
         Settings {
             SettingsView(settings: delegate.settings,
                          permissions: delegate.permissions,
-                         launchAtLogin: delegate.launchAtLogin)
+                         launchAtLogin: delegate.launchAtLogin,
+                         hotKey: delegate.hotKey)
         }
         // Otherwise macOS window restoration reopens Settings at every launch
         // just because it was open once — so summoning the panel appears to
@@ -52,7 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var container: ModelContainer?
     private var panelController: PanelController?
     private var clipboardMonitor: ClipboardMonitor?
-    private var hotKey: HotKeyMonitor?
+    /// Built lazily in `applicationDidFinishLaunching` because firing it needs
+    /// the panel controller, which needs the store.
+    private(set) var hotKey: HotKeyBinding?
 
     /// Created here, not inside the view, so each lives exactly once for the
     /// process and its notification observers are registered exactly once.
@@ -80,12 +83,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.start()
         clipboardMonitor = monitor
 
-        let hotKey = HotKeyMonitor(keyCode: UInt32(kVK_ANSI_V),
-                                   modifiers: UInt32(cmdKey | shiftKey)) {
+        let hotKey = HotKeyBinding(settings: settings, permissions: permissions) {
             MainActor.assumeIsolated { controller.toggle() }
         }
+        hotKey.apply()
         self.hotKey = hotKey
-        permissions.hotKeyConflict = !hotKey.isRegistered
 
         // Show once at launch, otherwise a fresh install looks like it did
         // nothing at all.
