@@ -42,6 +42,11 @@ final class PanelController {
     private let permissions: PermissionsService
     private let launchAtLogin: LaunchAtLogin
     private let pasteService = PasteService()
+    private var keyObservers: [NSObjectProtocol] = []
+
+    /// Guards the resign-key dismissal so a paste, which deliberately hands key
+    /// status to the target app, does not race the hide it has already started.
+    private var dismissesOnResignKey = true
 
     /// Whoever was frontmost before the panel took focus. Captured at show
     /// time because by the time a card is clicked we are frontmost ourselves,
@@ -64,13 +69,12 @@ final class PanelController {
         let panel = panel ?? makePanel()
         self.panel = panel
         panel.center()
-        // Before activating, not after: activation makes us frontmost.
-        //
-        // Never record ourselves. At launch, and after an Esc that left us
-        // frontmost, the frontmost app IS us — storing that would make the
-        // paste target this app, and the keystroke would go nowhere while
-        // looking like a silent failure. Keeping the previous value (or nil)
-        // degrades correctly to "it is on the pasteboard".
+        // Never record ourselves. Even without activation this stays a real
+        // case — the panel can be summoned while our own Settings window is
+        // frontmost — and storing it would make the paste target this app, so
+        // the keystroke would go nowhere while looking like a silent failure.
+        // Keeping the previous value (or nil) degrades correctly to "it is on
+        // the pasteboard".
         if let frontmost = NSWorkspace.shared.frontmostApplication,
            frontmost.processIdentifier != NSRunningApplication.current.processIdentifier {
             previousApp = frontmost
@@ -78,7 +82,8 @@ final class PanelController {
         // Commit the pre-animation state before the window is on screen, or it
         // shows one frame at full size before the animation takes over.
         presentation.isVisible = false
-        NSApp.activate()
+        // Deliberately no `NSApp.activate()`. See the style mask: activating is
+        // exactly what would leave a full-screen Space.
         panel.makeKeyAndOrderFront(nil)
 
         // One runloop hop. Setting the start and end values within a single
@@ -86,7 +91,7 @@ final class PanelController {
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                withAnimation(PanelMetrics.appearAnimation) {
                     self.presentation.isVisible = true
                 }
             }
@@ -102,14 +107,13 @@ final class PanelController {
             work?()
             return
         }
-        withAnimation(.easeOut(duration: 0.16)) {
+        withAnimation(PanelMetrics.dismissAnimation) {
             presentation.isVisible = false
         } completion: {
             panel.orderOut(nil)
-            // Ordering the panel out is not enough to stop being frontmost —
-            // without this the next hotkey press would see us as the previous
-            // app, and focus would never return to where the user was.
-            NSApp.hide(nil)
+            // No `NSApp.hide(nil)` any more: we never activated, so there is
+            // nothing to hide, and hiding an inactive app would only risk
+            // pulling focus around on the way out.
             work?()
         }
     }
@@ -119,19 +123,34 @@ final class PanelController {
     /// instead of in the app the user was actually using.
     func paste(_ item: ClipItem, plainTextOnly: Bool = false) {
         let target = previousApp
+        // The paste is about to give key status away on purpose.
+        dismissesOnResignKey = false
         hide { [weak self] in
+            self?.dismissesOnResignKey = true
             self?.pasteService.paste(item, into: target, plainTextOnly: plainTextOnly)
         }
     }
 
     private func makePanel() -> NSPanel {
         // The frame carries the visible panel plus a transparent margin on
-        // every side for the SwiftUI shadow to fall into.
+        // every side for the SwiftUI shadow to fall into. Both numbers come
+        // from `PanelMetrics` — they used to be duplicated here and in the
+        // view's `.frame`, in a type whose comment claims they cannot drift.
         let margin = PanelMetrics.windowMargin * 2
         let panel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1100 + margin, height: 780 + margin),
+            contentRect: NSRect(x: 0, y: 0,
+                                width: PanelMetrics.panelSize.width + margin,
+                                height: PanelMetrics.panelSize.height + margin),
+            // `.nonactivatingPanel` is what makes this work over a full-screen
+            // app. Activating a regular, Dock-icon application pulls the user
+            // out of the full-screen Space to wherever our app lives —
+            // `canJoinAllSpaces` alone cannot prevent that, because the Space
+            // switch comes from the activation, not from the window. A
+            // non-activating panel takes keyboard input without its owner ever
+            // becoming the active app, so the current Space stays put.
+            //
             // No `.titled`, so there are no traffic lights to hide.
-            styleMask: [.borderless],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -143,14 +162,60 @@ final class PanelController {
         // rectangle; `GlassBackdrop` casts a correctly rounded one instead.
         panel.hasShadow = false
         panel.level = .floating
+        // `.fullScreenAuxiliary` lets the panel sit over a full-screen app
+        // rather than being pushed to its own Space; `.canJoinAllSpaces` means
+        // whichever Space is current is the one it appears on. Both are needed,
+        // and neither is sufficient without the non-activating style mask.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Without this the panel disappears the moment anything else takes
+        // focus, which for a panel that never activates is immediately.
+        panel.hidesOnDeactivate = false
+
+        // Key status drives the selection's emphasis. Observed here rather than
+        // read from SwiftUI's `\.appearsActive`, because whether that tracks a
+        // non-activating panel is not something to leave to chance in the one
+        // place a Mac app is most obviously judged.
+        let center = NotificationCenter.default
+        keyObservers = [
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification,
+                               object: panel, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.presentation.isKeyWindow = true }
+            },
+            center.addObserver(forName: NSWindow.didResignKeyNotification,
+                               object: panel, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.presentation.isKeyWindow = false
+                    // Losing key status *is* the click-outside gesture: the
+                    // panel never activates the app, so nothing else can take
+                    // key from it except the user going somewhere else. A
+                    // one-shot panel that lingers after you have moved on is
+                    // clutter, and this is how Spotlight behaves.
+                    //
+                    // Preferred over a global mouse monitor: no extra event
+                    // stream, and it also covers dismissal by keyboard or by
+                    // another app activating itself.
+                    if self.dismissesOnResignKey { self.hide() }
+                }
+            },
+        ]
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
         // Excluded from screen sharing, recording and screenshots. A window
         // whose entire purpose is showing everything the user has recently
         // copied is the last thing that should be visible on a shared screen,
         // and the default is to be visible.
+        //
+        // Debug builds allow capture, because `.none` blocks *screenshots* too
+        // — including the developer's. Without this exception neither the
+        // author nor anyone reporting a visual bug can produce a picture of the
+        // panel, which makes the UI impossible to iterate on and impossible to
+        // file a report about. Release builds keep the guarantee.
+        #if DEBUG
+        panel.sharingType = .readOnly
+        #else
         panel.sharingType = .none
+        #endif
         panel.onCancel = { [weak self] in self?.hide() }
         let hosting = NSHostingView(
             rootView: ClipboardPanelView(onClose: { [weak self] in self?.hide() },

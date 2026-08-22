@@ -22,6 +22,11 @@ struct pasterApp: App {
                          permissions: delegate.permissions,
                          launchAtLogin: delegate.launchAtLogin)
         }
+        // Otherwise macOS window restoration reopens Settings at every launch
+        // just because it was open once — so summoning the panel appears to
+        // drag the Settings window along with it. Settings should arrive only
+        // when asked for, from the menu bar item.
+        .restorationBehavior(.disabled)
 
         // A menu bar item alongside the Dock icon, not instead of it. It is
         // where pausing belongs: reaching for it must not require summoning the

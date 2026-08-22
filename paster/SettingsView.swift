@@ -37,7 +37,10 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Section {
+            // Titled, not a bare leading Section: an untitled group renders its
+            // own edge directly under the tab bar's divider, which reads as a
+            // second rule with an empty band between them.
+            Section("Startup") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLogin.isEnabled },
                     set: { launchAtLogin.setEnabled($0) }
