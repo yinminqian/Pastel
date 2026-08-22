@@ -209,8 +209,11 @@ struct ShortcutRecorder: NSViewRepresentable {
         override func draw(_ dirtyRect: NSRect) {
             let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
                                      xRadius: 5, yRadius: 5)
+            // `controlColor`, not `controlBackgroundColor`: this reads as a
+            // control you press, and a white field inside a grouped Form row
+            // looks like a text field the keyboard cannot type into.
             (isRecording ? NSColor.controlAccentColor.withAlphaComponent(0.12)
-                         : NSColor.controlBackgroundColor).setFill()
+                         : NSColor.controlColor).setFill()
             shape.fill()
             (isRecording ? NSColor.controlAccentColor : NSColor.separatorColor).setStroke()
             shape.lineWidth = isRecording ? 2 : 1

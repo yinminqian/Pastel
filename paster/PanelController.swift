@@ -41,7 +41,9 @@ final class PanelController {
     private let container: ModelContainer
     private let permissions: PermissionsService
     private let launchAtLogin: LaunchAtLogin
-    private let pasteService = PasteService()
+    /// Shared with `MCPService`, which writes to the pasteboard through the
+    /// same path so the own-source marker is always stamped the same way.
+    let pasteService = PasteService()
     private var keyObservers: [NSObjectProtocol] = []
 
     /// Guards the resign-key dismissal so a paste, which deliberately hands key

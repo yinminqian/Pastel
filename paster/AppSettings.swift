@@ -55,6 +55,35 @@ final class AppSettings {
         didSet { defaults.set(excludedApps, forKey: Key.excludedApps) }
     }
 
+    /// Whether the local MCP endpoint runs.
+    ///
+    /// Off by default, and there is no plan to change that. What it exposes is
+    /// every password reset link, address and half-written message the user has
+    /// copied recently, so it has to be something they chose.
+    var mcpEnabled: Bool {
+        didSet { defaults.set(mcpEnabled, forKey: Key.mcpEnabled) }
+    }
+
+    /// Configurable because a fixed port is a port some other tool already has,
+    /// and the failure mode is a server that silently does not start.
+    var mcpPort: Int {
+        didSet { defaults.set(mcpPort, forKey: Key.mcpPort) }
+    }
+
+    /// The bearer token the endpoint requires.
+    ///
+    /// In defaults rather than the Keychain, and the trade-off is deliberate:
+    /// any process running as this user can read the preferences file, so the
+    /// token defends against a web page reaching loopback and against other
+    /// users on the machine, not against local code already running as you.
+    /// The Keychain would raise that bar; it would also mean an authorisation
+    /// prompt on the path that starts the server, which is a poor trade for a
+    /// feature that is off by default and loopback-only. Stated here so nobody
+    /// has to guess what it is worth.
+    var mcpToken: String {
+        didSet { defaults.set(mcpToken, forKey: Key.mcpToken) }
+    }
+
     private let defaults: UserDefaults
 
     private enum Key {
@@ -63,6 +92,9 @@ final class AppSettings {
         static let retentionDays = "retention-days"
         static let excludedApps = "user-excluded-apps"
         static let shortcut = "panel-shortcut"
+        static let mcpEnabled = "mcp-enabled"
+        static let mcpPort = "mcp-port"
+        static let mcpToken = "mcp-token"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -72,11 +104,18 @@ final class AppSettings {
         defaults.register(defaults: [
             Key.historyLimit: 500,
             Key.retentionDays: 30,
+            // Not a registered IANA port and not one a development server
+            // reaches for, so it is unlikely to collide with something already
+            // running. Changeable regardless.
+            Key.mcpPort: 4257,
         ])
         self.isPaused = defaults.bool(forKey: Key.isPaused)
         self.historyLimit = defaults.integer(forKey: Key.historyLimit)
         self.retentionDays = defaults.integer(forKey: Key.retentionDays)
         self.excludedApps = defaults.stringArray(forKey: Key.excludedApps) ?? []
+        self.mcpEnabled = defaults.bool(forKey: Key.mcpEnabled)
+        self.mcpPort = defaults.integer(forKey: Key.mcpPort)
+        self.mcpToken = defaults.string(forKey: Key.mcpToken) ?? ""
         self.shortcut = (defaults.data(forKey: Key.shortcut)
             .flatMap { try? JSONDecoder().decode(Shortcut.self, from: $0) })
             ?? .commandShiftV

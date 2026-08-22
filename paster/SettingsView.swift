@@ -17,6 +17,7 @@ struct SettingsView: View {
     /// scene graph is built. In practice it is always there by the time a
     /// window appears; the pane says so plainly if it is not.
     var hotKey: HotKeyBinding?
+    var mcp: MCPService?
     var onClearHistory: () -> Void = {}
 
     var body: some View {
@@ -32,8 +33,15 @@ struct SettingsView: View {
 
             PrivacySettings(settings: settings)
                 .tabItem { Label("Privacy", systemImage: "hand.raised") }
+
+            MCPSettings(settings: settings, mcp: mcp)
+                .tabItem { Label("MCP", systemImage: "sparkles") }
         }
-        .frame(width: 480, height: 340)
+        // Width fixed, height left to each pane. A single height for all four
+        // would either clip the MCP pane or leave the Startup pane mostly
+        // empty; macOS resizes a preferences window between tabs, and matching
+        // that is what keeps this from reading as a ported dialog.
+        .frame(width: 520)
     }
 }
 
@@ -94,6 +102,7 @@ private struct ShortcutSettings: View {
             }
         }
         .formStyle(.grouped)
+        .frame(height: 200)
     }
 }
 
@@ -201,6 +210,7 @@ private struct PrivacySettings: View {
             }
         }
         .formStyle(.grouped)
+        .frame(height: 400)
     }
 
     /// Picks a real app and stores its bundle identifier, rather than asking
@@ -224,5 +234,135 @@ private struct PrivacySettings: View {
         guard let selection else { return }
         settings.excludedApps.removeAll { $0 == selection }
         self.selection = nil
+    }
+}
+
+// MARK: - MCP
+
+/// The switch, and everything needed to point a client at the endpoint.
+///
+/// Written as one screen on purpose: a local server whose port, token and
+/// address live in three different places is a local server people give up on
+/// and leave running.
+private struct MCPSettings: View {
+    var settings: AppSettings
+    var mcp: MCPService?
+
+    @State private var revealToken = false
+    @State private var copied = false
+
+    var body: some View {
+        Form {
+            Section("Model Context Protocol") {
+                Toggle("Let AI tools read the clipboard", isOn: Binding(
+                    get: { settings.mcpEnabled },
+                    set: { enable($0) }
+                ))
+                // Stated at the switch rather than buried in a footnote. Anyone
+                // deciding whether to turn this on is deciding exactly this.
+                Text("Off by default. While it is on, any program on this Mac that has the access token below can read every clipping in your history — including anything you copied from a page you were logged into.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if settings.mcpEnabled {
+                Section("Endpoint") {
+                    LabeledContent("Address") {
+                        Text(mcp?.endpointURL ?? "—")
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    // Built as a plain String so the number is not grouped: a
+                    // port is an identifier, and "Port 4,258" reads as a
+                    // quantity of something.
+                    Stepper("Port " + String(settings.mcpPort),
+                            value: Binding(get: { settings.mcpPort },
+                                           set: { settings.mcpPort = $0; mcp?.apply() }),
+                            in: 1024...65535)
+                    LabeledContent("Status") { statusLabel }
+                }
+
+                Section("Access token") {
+                    LabeledContent("Token") {
+                        HStack(spacing: 6) {
+                            // Hidden by default: this pane is the kind of thing
+                            // that ends up in a screen share.
+                            Text(revealToken ? settings.mcpToken : "••••••••••••••••")
+                                .font(.caption.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                            Button(revealToken ? "Hide" : "Reveal") { revealToken.toggle() }
+                                .controlSize(.small)
+                        }
+                    }
+                    HStack {
+                        Button(copied ? "Copied" : "Copy Setup Command") { copyCommand() }
+                            .disabled(mcp == nil)
+                        Button("Regenerate") {
+                            mcp?.regenerateToken()
+                            revealToken = false
+                        }
+                        Spacer()
+                    }
+                    Text("Regenerating stops every client that has the old token until it is given the new one.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section("Tools") {
+                    // Named so the switch is not a blank cheque: someone
+                    // deciding whether to enable this can see the whole surface.
+                    Label("search_clipboard — find clippings by text", systemImage: "magnifyingglass")
+                    Label("get_recent_items — list the newest clippings", systemImage: "clock")
+                    Label("read_clipboard_item — read one in full", systemImage: "doc.text")
+                    Label("copy_to_clipboard — put something on the clipboard", systemImage: "doc.on.clipboard")
+                    Text("Nothing is ever pasted into an app on a model's behalf, and image and file bytes are never sent.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        // Two heights, because switching the endpoint on reveals three more
+        // sections. A single height sized for the long form leaves the switch
+        // floating in an empty window, which reads as a pane that failed to
+        // load rather than one with a single control.
+        .frame(height: settings.mcpEnabled ? 700 : 200)
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if let failure = mcp?.failure {
+            // The usual cause is the port already being taken, and a server the
+            // user switched on that is not running has to say so here rather
+            // than in some client's error message later.
+            Label(failure, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+        } else if mcp?.isRunning == true {
+            Label("Listening on this Mac only", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        } else {
+            Text("Not running").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Turning it on mints a token if there is not one yet, so the switch alone
+    /// leaves a working, authenticated endpoint rather than one that refuses
+    /// every request for a reason the user cannot see.
+    private func enable(_ on: Bool) {
+        if on, settings.mcpToken.isEmpty {
+            settings.mcpToken = MCPService.generateToken()
+        }
+        settings.mcpEnabled = on
+        mcp?.apply()
+    }
+
+    private func copyCommand() {
+        guard let mcp else { return }
+        // Through the service, not straight to the pasteboard: the command
+        // contains the bearer token, and an unstamped write would be captured
+        // and stored as a searchable plain-text copy of the credential.
+        mcp.copySetupCommand()
+        copied = true
     }
 }

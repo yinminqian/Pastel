@@ -38,6 +38,30 @@ final class PasteService {
         activate(target) { [weak self] in self?.postCommandV() }
     }
 
+    /// Puts a clipping on the pasteboard and stops there.
+    ///
+    /// Separate from `paste` because the MCP tools must not synthesise a
+    /// keystroke: an agent copying something has no idea which app is frontmost
+    /// or whether a text field has focus, and typing into a document the user is
+    /// not looking at is not a thing to do on a model's behalf.
+    func copy(_ item: ClipItem, plainTextOnly: Bool = false) {
+        write(item, plainTextOnly: plainTextOnly)
+    }
+
+    /// Puts literal text on the pasteboard, stamped as our own write.
+    ///
+    /// Stamped so the poller does not record it: an agent's own output showing
+    /// up in the history attributed to whatever app happened to be frontmost
+    /// would be a wrong answer to "where did this come from".
+    func copy(text: String) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        let entry = NSPasteboardItem()
+        entry.setString(text, forType: .string)
+        entry.setString(ClipboardMonitor.ownSourceMarker, forType: ClipboardMonitor.sourceType)
+        pasteboard.writeObjects([entry])
+    }
+
     private var activationObserver: NSObjectProtocol?
     private var pendingPaste: (() -> Void)?
     private var pendingTarget: pid_t?

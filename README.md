@@ -26,12 +26,18 @@ to see how clipboard capture on modern macOS actually works, read `ClipboardMoni
 - Pause capture from the menu bar, or with `open paster://pause`.
 - <kbd>⌘</kbd><kbd>1</kbd>–<kbd>⌘</kbd><kbd>9</kbd> pastes one of the first nine
   cards without arrowing to it; add <kbd>⇧</kbd> to paste as plain text.
+- **Pin** a clipping (<kbd>⌘</kbd><kbd>P</kbd>) to keep it regardless of the row
+  limit *and* the age limit, in its own section at the top.
+- **Clear the history** in one go, from the menu bar or Settings. Pinned
+  clippings are kept, and the system clipboard is emptied too.
+- A configurable shortcut, and an optional
+  [local MCP endpoint](#mcp-off-by-default) so an AI tool can search the history.
 
 ## What it does not do
 
-No sync. No pinned boards. No OCR of copied screenshots. One clipping per copy,
-so copying three files in Finder and pasting gives you the first one. These are
-absences, not oversights — see [Deliberate omissions](#deliberate-omissions).
+No sync. No OCR of copied screenshots. One clipping per copy, so copying three
+files in Finder and pasting gives you the first one. These are absences, not
+oversights — see [Deliberate omissions](#deliberate-omissions).
 
 ## Requirements
 
@@ -108,6 +114,57 @@ a clipping made on your phone is one you want here — but it is labelled, becau
 the frontmost Mac app did not produce it. The store is **not encrypted at rest**;
 it relies on FileVault, same as every other clipboard manager.
 
+## MCP (off by default)
+
+The app can expose the history to an AI tool over the
+[Model Context Protocol](https://modelcontextprotocol.io). It is **off until you
+switch it on** in Settings → MCP, and it stays off across launches, because what
+it exposes is every password reset link, address and half-written message you
+have copied recently.
+
+Turning it on generates an access token and starts an HTTP server. Settings has a
+**Copy Setup Command** button; paste the result into a terminal:
+
+```
+claude mcp add --transport http paster http://127.0.0.1:4257/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Four tools, named after the ones existing clipboard MCP servers settled on:
+
+| Tool | What it does |
+| --- | --- |
+| `search_clipboard` | Find clippings whose preview contains some text |
+| `get_recent_items` | List the newest clippings |
+| `read_clipboard_item` | Read one in full by id — previews are truncated at 500 characters |
+| `copy_to_clipboard` | Put a stored clipping or a literal string on the clipboard |
+
+**What it will not do.** It never pastes into an app on a model's behalf —
+`copy_to_clipboard` puts something on the clipboard and stops, because a model
+has no idea which app is frontmost or whether a text field has focus. It never
+returns payload bytes, so an image clipping comes back as metadata rather than a
+megabyte of base64. Clippings that were never stored — anything the privacy
+layers dropped — are not reachable, because they do not exist.
+
+**How it is protected, and what that is worth.** The listener binds `127.0.0.1`
+only, so it is not reachable from your network; every request needs the bearer
+token; and a request carrying an `Origin` header is refused outright, since a
+real MCP client never sends one and a web page cannot avoid sending one — that is
+the DNS-rebinding defence the MCP spec requires. `GET` and `DELETE` are refused,
+chunked bodies are refused, bodies over 1 MB are refused, and each connection
+serves one request and closes.
+
+The token lives in `UserDefaults`, and this is a deliberate trade-off worth
+stating plainly: any process running as you can read the preferences file. The
+token defends against a web page reaching loopback and against other users on the
+machine — not against local code already running as you. The Keychain would raise
+that bar and would also put an authorisation prompt on the path that starts the
+server, which is a poor trade for something off by default and loopback-only.
+
+Both the initialisation handshake and the newer stateless revisions work: the
+server answers `initialize` for clients that open with it, and answers
+`tools/list` without one for clients that do not.
+
 ## Tests
 
 ```sh
@@ -168,10 +225,6 @@ Things left out on purpose, so nobody has to rediscover why:
 - **Multiple items per clipping.** Copying several files at once collapses to
   one. Fixing it properly needs a schema version and a real migration; the
   current shape is honest about the limitation instead of half-supporting it.
-- **A configurable shortcut.** <kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd> is
-  hardcoded. Note that it is "paste and match style" in many editors, and this
-  app takes it exclusively while running. If another app already owns it, the
-  panel says so and the Dock icon still opens the panel.
 - **Undo.** Deleting a clipping is permanent. The delete key is
   <kbd>⌘</kbd><kbd>⌫</kbd> rather than <kbd>⌫</kbd> so it cannot happen while
   you are typing in the search field.

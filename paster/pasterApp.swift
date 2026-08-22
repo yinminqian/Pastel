@@ -8,6 +8,7 @@
 import SwiftUI
 import SwiftData
 import Carbon.HIToolbox
+import Observation
 
 @main
 struct pasterApp: App {
@@ -22,6 +23,7 @@ struct pasterApp: App {
                          permissions: delegate.permissions,
                          launchAtLogin: delegate.launchAtLogin,
                          hotKey: delegate.hotKey,
+                         mcp: delegate.mcp,
                          onClearHistory: delegate.confirmClearHistory)
         }
         // Otherwise macOS window restoration reopens Settings at every launch
@@ -51,10 +53,19 @@ struct pasterApp: App {
     }
 }
 
+/// `@Observable` because the scene graph reads `hotKey` and `mcp`, and both are
+/// built in `applicationDidFinishLaunching` — after the scenes exist. Without
+/// observation SwiftUI reads them once, sees nil, and never looks again: the
+/// Shortcut pane stayed on "Still starting up" and the MCP pane showed no
+/// address and a disabled Copy button, for the whole life of the process.
+@Observable
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var container: ModelContainer?
     private var panelController: PanelController?
     private var clipboardMonitor: ClipboardMonitor?
+    /// Also built at launch, for the same reason as `hotKey`.
+    private(set) var mcp: MCPService?
+
     /// Built lazily in `applicationDidFinishLaunching` because firing it needs
     /// the panel controller, which needs the store.
     private(set) var hotKey: HotKeyBinding?
@@ -90,6 +101,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotKey.apply()
         self.hotKey = hotKey
+
+        // Applied, not started: `apply` is a no-op unless the user has switched
+        // the endpoint on, which is how it stays off by default across launches.
+        let mcp = MCPService(context: container.mainContext,
+                             paste: controller.pasteService,
+                             settings: settings)
+        mcp.apply()
+        self.mcp = mcp
 
         // Show once at launch, otherwise a fresh install looks like it did
         // nothing at all.
