@@ -263,10 +263,27 @@ struct ClipboardPanelView: View {
         // In memory rather than a dynamic @Query predicate: the history is
         // capped at 500 rows, so filtering here costs nothing and keeps the
         // query static.
-        guard !search.isEmpty else { return clips }
-        return clips.filter {
+        let matches = search.isEmpty ? clips : clips.filter {
             $0.previewText?.localizedCaseInsensitiveContains(search) ?? false
         }
+        return Self.pinnedFirst(matches)
+    }
+
+    private var selectedClip: ClipItem? {
+        clips.first { $0.persistentModelID == selection }
+    }
+
+    /// Pinned rows moved to the front, order preserved within each partition.
+    ///
+    /// This is the one list the keyboard, the quick-paste digits and the grid
+    /// all read. Sorting it here rather than only in `grouped` is what keeps
+    /// ⌘1 on the card that is visually first: the grid draws pinned cards in
+    /// their own leading section, so a flat list still sorted by date would
+    /// number the cards in an order the eye does not see.
+    private static func pinnedFirst(_ list: [ClipItem]) -> [ClipItem] {
+        let pinned = list.filter(\.isPinned)
+        guard !pinned.isEmpty else { return list }
+        return pinned + list.filter { !$0.isPinned }
     }
 
     var body: some View {
@@ -378,6 +395,20 @@ struct ClipboardPanelView: View {
             }
 
             Spacer()
+
+            Button(action: pinSelected) {
+                Image(systemName: selectedClip?.isPinned == true ? "pin.slash" : "pin")
+                    .font(.system(size: 13))
+                    .frame(width: 24, height: 24)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .keyboardShortcut("p", modifiers: .command)
+            .disabled(selection == nil)
+            .help(selectedClip?.isPinned == true
+                  ? "Unpin selected clipping (Command-P)"
+                  : "Pin selected clipping (Command-P)")
 
             // Not `role: .destructive` — a permanently red glyph in chrome is
             // not a Mac convention. Red belongs on the context menu's Delete,
@@ -505,7 +536,7 @@ struct ClipboardPanelView: View {
                             // Apple's sidebar spec — a heading the same size as
                             // its content is not a heading. Not uppercased small
                             // caps either; that spelling is the iOS pattern.
-                            Text(group.era.rawValue)
+                            Text(group.title)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .padding(.top, 6)
@@ -547,21 +578,38 @@ struct ClipboardPanelView: View {
                 Button("Paste") { onPaste(clip, false) }
                 Button("Paste as Plain Text") { onPaste(clip, true) }
                 Divider()
+                Button(clip.isPinned ? "Unpin" : "Pin") { togglePin(clip) }
+                Divider()
                 Button("Delete", role: .destructive) { delete(clip) }
             }
     }
 
     private struct Bucket {
-        let era: ClipEra
+        let title: String
         let items: [ClipItem]
     }
 
+    /// Pinned first, then the time buckets.
+    ///
+    /// Pinned clippings leave their era entirely rather than appearing twice.
+    /// A card in two places is a card the arrow keys have to visit twice and
+    /// the digits cannot label, and "kept on purpose" is the more useful thing
+    /// to know about it than when it was copied.
     private var grouped: [Bucket] {
-        let buckets = Dictionary(grouping: visible) { ClipEra.of($0.copiedAt) }
-        return ClipEra.allCases.compactMap { era in
-            guard let items = buckets[era], !items.isEmpty else { return nil }
-            return Bucket(era: era, items: items)
+        let list = visible
+        var result: [Bucket] = []
+
+        let pinned = list.filter(\.isPinned)
+        if !pinned.isEmpty { result.append(Bucket(title: "Pinned", items: pinned)) }
+
+        let buckets = Dictionary(grouping: list.filter { !$0.isPinned }) {
+            ClipEra.of($0.copiedAt)
         }
+        result += ClipEra.allCases.compactMap { era in
+            guard let items = buckets[era], !items.isEmpty else { return nil }
+            return Bucket(title: era.rawValue, items: items)
+        }
+        return result
     }
 
     /// 1–9 for the first nine cards overall, so the digits match what the eye
@@ -605,6 +653,18 @@ struct ClipboardPanelView: View {
         delete(doomed)
     }
 
+    private func togglePin(_ clip: ClipItem) {
+        clip.isPinned.toggle()
+        // Explicit for the same reason as `delete`: autosave timing is
+        // unpredictable, and a pin the user set should not be pending at quit.
+        try? modelContext.save()
+    }
+
+    private func pinSelected() {
+        guard let clip = visible.first(where: { $0.persistentModelID == selection }) else { return }
+        togglePin(clip)
+    }
+
     private func delete(_ clip: ClipItem) {
         modelContext.delete(clip)
         // Explicit: SwiftData's autosave timing is unpredictable, and a delete
@@ -613,7 +673,9 @@ struct ClipboardPanelView: View {
     }
 
     private func resetScroll() {
-        let first = clips.first?.persistentModelID
+        // Not `clips.first`: with a pin present the newest clipping is no longer
+        // the topmost card, and scrolling to it would leave the grid mid-list.
+        let first = Self.pinnedFirst(clips).first?.persistentModelID
         selection = first
         guard let first, let scrollProxy else { return }
         scrollProxy.scrollTo(first, anchor: .top)
@@ -804,6 +866,15 @@ private struct ClipCard: View {
     /// source app's real icon at the trailing edge.
     private var band: some View {
         HStack(spacing: 6) {
+            if clip.isPinned {
+                // Monochrome, like every other badge here. Colour in this
+                // interface is reserved for the one selected card's ring, and a
+                // grid of orange pins would take that distinction away.
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .help("Kept regardless of the history limit")
+            }
             Text(clip.kindLabel)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)

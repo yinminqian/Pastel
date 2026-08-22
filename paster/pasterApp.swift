@@ -21,7 +21,8 @@ struct pasterApp: App {
             SettingsView(settings: delegate.settings,
                          permissions: delegate.permissions,
                          launchAtLogin: delegate.launchAtLogin,
-                         hotKey: delegate.hotKey)
+                         hotKey: delegate.hotKey,
+                         onClearHistory: delegate.confirmClearHistory)
         }
         // Otherwise macOS window restoration reopens Settings at every launch
         // just because it was open once — so summoning the panel appears to
@@ -41,6 +42,7 @@ struct pasterApp: App {
             }
             Divider()
             Button("Show Clipboard") { delegate.showPanel() }
+            Button("Clear History…") { delegate.confirmClearHistory() }
             Divider()
             SettingsLink { Text("Settings…") }
             Button("Quit paster") { NSApplication.shared.terminate(nil) }
@@ -97,6 +99,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     func showPanel() {
         panelController?.show()
+    }
+
+    /// Asks, then clears.
+    ///
+    /// Confirmed rather than undoable: there is nothing to undo a bulk delete
+    /// with here, and a clipboard history is exactly the thing someone clears
+    /// *because* they want it gone — an undo affordance sitting around
+    /// afterwards would defeat the purpose. Pinned clippings are kept, since
+    /// they were marked as worth keeping on purpose.
+    @MainActor
+    func confirmClearHistory() {
+        guard let context = container?.mainContext else { return }
+        let tally = ClipboardHistory.tally(in: context, keepingPinned: true)
+        guard tally.deletable > 0 else {
+            NSSound.beep()
+            return
+        }
+
+        let clippings = "\(tally.deletable.formatted()) clipping"
+            + (tally.deletable == 1 ? "" : "s")
+        let kept = tally.pinned > 0
+            ? ", and \(tally.pinned.formatted()) pinned clipping"
+                + (tally.pinned == 1 ? " kept" : "s kept")
+            : ""
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear clipboard history?"
+        alert.informativeText = """
+        \(clippings) will be deleted\(kept). The system clipboard is emptied too, \
+        so nothing is left to paste.
+
+        This cannot be undone.
+        """
+        let clear = alert.addButton(withTitle: "Clear History")
+        clear.hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        // Escape has to reach Cancel, or a dismissing keypress lands on the
+        // destructive button.
+        alert.buttons.last?.keyEquivalent = "\u{1b}"
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        ClipboardHistory.clear(in: context, keepingPinned: true)
     }
 
     /// `paster://` deep links, so capture can be driven from a script, a

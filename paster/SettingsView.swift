@@ -17,12 +17,14 @@ struct SettingsView: View {
     /// scene graph is built. In practice it is always there by the time a
     /// window appears; the pane says so plainly if it is not.
     var hotKey: HotKeyBinding?
+    var onClearHistory: () -> Void = {}
 
     var body: some View {
         TabView {
             GeneralSettings(settings: settings,
                             permissions: permissions,
-                            launchAtLogin: launchAtLogin)
+                            launchAtLogin: launchAtLogin,
+                            onClearHistory: onClearHistory)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
             ShortcutSettings(permissions: permissions, hotKey: hotKey)
@@ -101,6 +103,7 @@ private struct GeneralSettings: View {
     var settings: AppSettings
     var permissions: PermissionsService
     var launchAtLogin: LaunchAtLogin
+    var onClearHistory: () -> Void
 
     var body: some View {
         Form {
@@ -128,8 +131,12 @@ private struct GeneralSettings: View {
                                        set: { settings.retentionDays = $0 }),
                         in: 1...365,
                         step: 1)
-                Text("Both limits apply. Lowering either takes effect on the next copy.")
+                Text("Both limits apply. Lowering either takes effect on the next copy. Pinned clippings are exempt from both.")
                     .font(.caption).foregroundStyle(.secondary)
+
+                LabeledContent("Delete everything now") {
+                    Button("Clear History…", action: onClearHistory)
+                }
             }
 
             Section("Permissions") {

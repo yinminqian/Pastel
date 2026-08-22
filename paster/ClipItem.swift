@@ -118,6 +118,17 @@ final class ClipItem {
     /// no per-row blob here that normalising would deduplicate.
     var sourceBundleID: String?
 
+    /// Kept regardless of the history limit or the age limit.
+    ///
+    /// A pin is a promise, so it has to win over *both* retention axes — a pin
+    /// that survives the row cap but quietly expires after thirty days is worse
+    /// than no pin at all. Pinned rows are also excluded from the count the
+    /// limit is compared against, so pinning does not evict unpinned history.
+    ///
+    /// Survives a repeat copy: dedup fetches the existing row by fingerprint
+    /// and only moves its timestamp, rather than replacing it.
+    var isPinned: Bool = false
+
     /// Arrived from another device through Universal Clipboard, so
     /// `sourceBundleID` describes this Mac's foreground rather than the origin.
     var isFromRemoteDevice: Bool = false
@@ -290,7 +301,7 @@ final class ClipRepresentation {
 /// migration, and folding the old rows into the new shape is an idempotent
 /// backfill in app code — see `PayloadBackfill`.
 enum ClipSchema: VersionedSchema {
-    static var versionIdentifier: Schema.Version { Schema.Version(2, 0, 0) }
+    static var versionIdentifier: Schema.Version { Schema.Version(3, 0, 0) }
     static var models: [any PersistentModel.Type] {
         [ClipItem.self, ClipPayload.self, ClipRepresentation.self]
     }

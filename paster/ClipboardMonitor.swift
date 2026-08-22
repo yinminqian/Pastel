@@ -317,14 +317,18 @@ final class ClipboardMonitor {
         }
     }
 
-    private func prune() {
+    /// Not `private`, so the retention rules can be tested directly. They are
+    /// the one part of this class whose bugs delete the user's data.
+    func prune() {
         var didDelete = false
 
         // Age axis. Runs first and unconditionally: an old clipping is stale
         // whether or not the store is near its row limit, and content the user
         // forgot about is exactly what should not sit around indefinitely.
         let cutoff = Date().addingTimeInterval(-settings.maxAge)
-        let expired = FetchDescriptor<ClipItem>(predicate: #Predicate { $0.copiedAt < cutoff })
+        let expired = FetchDescriptor<ClipItem>(
+            predicate: #Predicate { $0.copiedAt < cutoff && !$0.isPinned }
+        )
         if let old = try? context.fetch(expired), !old.isEmpty {
             old.forEach(context.delete)
             didDelete = true
@@ -333,9 +337,16 @@ final class ClipboardMonitor {
         // Count axis. Counted before fetching, because loading every row's
         // objects just to learn there is nothing to prune would run on every
         // single copy.
-        let total = (try? context.fetchCount(FetchDescriptor<ClipItem>())) ?? 0
+        //
+        // The pinned filter has to be on the count AND on the offset fetch. With
+        // it on only one, the offset would be measured against a total that
+        // includes pinned rows but applied to a list that does not, so it walks
+        // past unpinned rows and deletes from the wrong end.
+        let unpinned = #Predicate<ClipItem> { !$0.isPinned }
+        let total = (try? context.fetchCount(FetchDescriptor<ClipItem>(predicate: unpinned))) ?? 0
         if total > settings.historyLimit {
             var descriptor = FetchDescriptor<ClipItem>(
+                predicate: unpinned,
                 sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]
             )
             descriptor.fetchOffset = settings.historyLimit
