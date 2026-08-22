@@ -355,6 +355,8 @@ struct ClipboardPanelView: View {
     /// Held so the grid can be scrolled back to the top while it is hidden.
     @State private var scrollProxy: ScrollViewProxy?
     @State private var hasSeededSelection = false
+    /// Scopes the action cluster's glass union.
+    @Namespace private var actionGlass
 
     private var visible: [ClipItem] {
         // In memory rather than a dynamic @Query predicate: the history is
@@ -489,55 +491,109 @@ struct ClipboardPanelView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The three actions, merged into one capsule the way a toolbar groups
-    /// adjacent items.
+    /// The three actions, merged into one Liquid Glass capsule.
     ///
-    /// They are ordinary `.glass` buttons — the merge comes from the container,
-    /// not from drawing a capsule by hand: "a spacing value on the container
-    /// that's larger than the spacing of an interior HStack causes Liquid Glass
-    /// effects to blend together at rest". Zero interior spacing is what turns
-    /// three circles into one continuous shape; at 4pt they blended into a
-    /// scalloped chain instead, which is the same mechanism caught halfway.
+    /// The merge is `glassEffectUnion`, not proximity blending. Blending is what
+    /// produced the earlier scalloped chain, and it always will: it fuses each
+    /// button's own shape into its neighbour's, so three circles come out as a
+    /// peanut with two concave waists — 37pt at the glyphs pinching to 26pt
+    /// between them, at every interior spacing tried. A union is a different
+    /// mechanism: it draws ONE shape by fitting the member's own shape to the
+    /// whole group's bounding box, which is why this reads as a single capsule
+    /// with a flat top and bottom. Measured 153.5 × 37.0pt with a 0pt envelope
+    /// dip — the same signature as a hand-drawn capsule and as a real
+    /// `ToolbarItemGroup` in a real titlebar.
+    ///
+    /// Three things are load-bearing, and dropping any one was measured to break
+    /// it:
+    ///
+    /// - `.buttonBorderShape(.capsule)`. A union fits the *member's* shape to
+    ///   the group's box, so `.circle` fits a circle to a 153pt-wide box: one
+    ///   36pt circle centred on the cluster, with the outer two buttons losing
+    ///   their glass entirely.
+    /// - `.glassEffectUnion` on every member, same id, same namespace. Without
+    ///   it this exact code is the scalloped chain again.
+    /// - A `GlassEffectContainer` ancestor. A union with no container is inert —
+    ///   three separate capsules. That requirement is undocumented, which is why
+    ///   the container is declared here rather than borrowed from `header`: a
+    ///   refactor up there must not silently un-merge the cluster. It takes no
+    ///   spacing argument, because spacing governs proximity blending and a
+    ///   union does not use it.
+    ///
+    /// **No sizes are written down.** `.controlSize(.extraLarge)` is the whole
+    /// of the metrics — it is what makes each `.glass` button 36.5pt tall,
+    /// matching the 36pt of every control in Safari's 52pt toolbar. The cluster
+    /// comes out 153.5pt wide against Safari's 108: that is the `.glass` style's
+    /// own horizontal padding at this control size, and it is the price of
+    /// taking the number from the system instead of typing one in.
     private var actionCluster: some View {
-        HStack(spacing: 0) {
-            actionButton(selectedClip?.isPinned == true ? "pin.slash" : "pin",
-                         help: selectedClip?.isPinned == true
-                             ? "Unpin selected clipping (Command-P)"
-                             : "Pin selected clipping (Command-P)",
-                         action: pinSelected)
-                .keyboardShortcut("p", modifiers: .command)
+        GlassEffectContainer {
+            HStack(spacing: 0) {
+                actionButton(selectedClip?.isPinned == true ? "Unpin" : "Pin",
+                             symbol: selectedClip?.isPinned == true ? "pin.slash" : "pin",
+                             help: selectedClip?.isPinned == true
+                                 ? "Unpin selected clipping (Command-P)"
+                                 : "Pin selected clipping (Command-P)",
+                             action: pinSelected)
+                    .keyboardShortcut("p", modifiers: .command)
 
-            // Not `role: .destructive` — a permanently red glyph in chrome is
-            // not a Mac convention. Red belongs on the context menu's Delete,
-            // where AppKit paints it.
-            actionButton("trash",
-                         help: "Delete selected clipping (Command-Delete)",
-                         action: deleteSelected)
-                .keyboardShortcut(.delete, modifiers: .command)
+                // Not `role: .destructive` — a permanently red glyph in chrome
+                // is not a Mac convention. Red belongs on the context menu's
+                // Delete, where AppKit paints it.
+                actionButton("Delete", symbol: "trash",
+                             help: "Delete selected clipping (Command-Delete)",
+                             action: deleteSelected)
+                    .keyboardShortcut(.delete, modifiers: .command)
 
-            // A button rather than a `Menu`: everything the old gear menu held —
-            // launch at login and the two permission shortcuts — is in Settings
-            // now, and a preference in two places is one that disagrees with
-            // itself. It also sidesteps `Menu` refusing to render `.glass` at
-            // the same strength as a button.
-            SettingsLink {
-                Image(systemName: "gearshape")
+                // A button rather than a `Menu`: everything the old gear menu
+                // held — launch at login and the two permission shortcuts — is
+                // in Settings now, and a preference in two places is one that
+                // disagrees with itself. It also sidesteps `Menu` refusing to
+                // render `.glass` at the same strength as a button, and a
+                // `SettingsLink` joins the union exactly like a `Button` does.
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                .glassEffectUnion(id: Self.actionClusterUnion, namespace: actionGlass)
+                .labelStyle(.iconOnly)
+                .help("Settings")
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .help("Settings")
+            // The only size in the cluster, and it is the system's own.
+            .controlSize(.extraLarge)
         }
-        .controlSize(.extraLarge)
     }
 
-    private func actionButton(_ symbol: String,
+    /// The union's identifier. All three members share it, and the `Glass`
+    /// variant has to match too — a union combines effects with the same shape
+    /// and the same variant.
+    private static let actionClusterUnion = "actionCluster"
+
+    /// One member of the cluster's union.
+    ///
+    /// `.disabled` goes after the union deliberately: a disabled member still
+    /// contributes its geometry, so the capsule keeps its full width and flat
+    /// edges when nothing is selected and only the glyphs dim. Measured against
+    /// the enabled cluster — 153.5 × 37.0 either way.
+    ///
+    /// A `Label` rather than a bare `Image`, with `.labelStyle(.iconOnly)`: an
+    /// icon-only button with no text is silent to VoiceOver, and `.help` is a
+    /// tooltip, not an accessibility label. The label is the short name —
+    /// VoiceOver reading "Delete selected clipping, Command-Delete" as the
+    /// button's *name* is worse than reading "Delete"; the sentence belongs in
+    /// the tooltip, where it already is.
+    private func actionButton(_ name: String,
+                              symbol: String,
                               help: String,
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol)
+            Label(name, systemImage: symbol)
         }
         .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonBorderShape(.capsule)
+        .glassEffectUnion(id: Self.actionClusterUnion, namespace: actionGlass)
+        .labelStyle(.iconOnly)
         .disabled(selection == nil)
         .help(help)
     }
