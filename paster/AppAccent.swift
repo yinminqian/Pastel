@@ -30,6 +30,18 @@ enum AppAccent {
         return derived
     }
 
+    /// The app's user-visible name, for anything that has to be *spoken* rather
+    /// than shown.
+    ///
+    /// The interface uses the icon, which needs no name; VoiceOver cannot read
+    /// an icon, and "com.apple.Safari" is not what anyone calls it.
+    static func displayName(forBundleID bundleID: String?) -> String? {
+        guard let bundleID,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+        else { return nil }
+        return FileManager.default.displayName(atPath: url.path)
+    }
+
     static func icon(for bundleID: String?) -> NSImage? {
         guard let bundleID,
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)

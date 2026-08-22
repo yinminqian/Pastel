@@ -36,17 +36,12 @@ enum PanelMetrics {
     static let gridColumns = 4
     static let cardGap: CGFloat = 12
 
-    /// Every control in Safari's macOS 26 toolbar measures this tall — the
-    /// sidebar capsule, the back/forward capsule, the address field and the
-    /// actions cluster, all the same, inside a toolbar the accessibility API
-    /// reports as 52pt. Measured, not chosen: an earlier pass used 24 and the
-    /// header read as a toy.
-    static let headerControl: CGFloat = 36
-    /// Safari's toolbar glyphs, to the nearest point.
-    static let headerGlyph: CGFloat = 15
-    /// Safari's address field is 40% of its window's width. This is a little
-    /// under that, because a clipboard panel's subject is the grid below.
-    static let searchWidth: CGFloat = 340
+    /// Safari's address field is 40% of its window's width; this is a little
+    /// under that, because a clipboard panel's subject is the grid below. A
+    /// proportion rather than a point value, so it stays right if the panel is
+    /// ever resized — and the only header dimension stated anywhere, because
+    /// width is a layout choice where height is a control metric.
+    static var searchWidth: CGFloat { panelSize.width * 0.34 }
     /// Between the header's three groups.
     static let headerGlassSpacing: CGFloat = 10
 
@@ -454,7 +449,7 @@ struct ClipboardPanelView: View {
 
     // MARK: Header
 
-    /// The functional layer, on glass, at Safari's metrics.
+    /// The functional layer, on glass, at the system's own control size.
     ///
     /// This started as flat monochrome chrome, on the reasoning that the panel's
     /// own material was already the functional layer and glass on top would be
@@ -463,21 +458,21 @@ struct ClipboardPanelView: View {
     /// content — which is exactly where macOS 26 puts a toolbar's glass.
     ///
     /// Three groups, matching a toolbar's rhythm: window controls, the field,
-    /// the actions. That is not a taste call — in a real toolbar *adjacent*
+    /// the actions. Not a taste call — in a real toolbar *adjacent*
     /// `ToolbarItem`s share one glass capsule and `ToolbarSpacer` breaks them
-    /// apart, which is why Safari reads as three groups. A borderless panel has
-    /// no titlebar to hang a `.toolbar` on, so it is reproduced by hand.
+    /// apart, which is why Safari reads as three groups.
     ///
-    /// The sizes are measured, not chosen. Safari's toolbar on this machine
-    /// reports 52pt tall through the accessibility API, and every control in it
-    /// measures 36pt tall off a screenshot — the sidebar capsule, the
-    /// back/forward capsule, the address field and the actions cluster, all the
-    /// same. An earlier pass used 24pt and read as a toy.
+    /// **No sizes are written down here.** Safari's toolbar measures 36pt per
+    /// control; `.controlSize(.extraLarge)` is where that number comes from —
+    /// `.buttonStyle(.glass)` at that size measures 34.5 × 36.5, measured with a
+    /// probe rather than assumed. Note the `ControlSize` documentation claims
+    /// `.extraLarge` "resolves to `.large` on platforms other than visionOS";
+    /// on macOS 26 it does not, and the two differ by 8pt.
     private var header: some View {
         GlassEffectContainer(spacing: PanelMetrics.headerGlassSpacing) {
             HStack(spacing: PanelMetrics.headerGlassSpacing) {
                 // Bare, like Safari's. Traffic lights are not glass controls,
-                // and being the real ones they come out at the system's 14pt.
+                // and being the real ones they arrive at the system's own size.
                 WindowButtons(onClose: onClose)
                     .fixedSize()
 
@@ -490,20 +485,19 @@ struct ClipboardPanelView: View {
             // cluster is wider than the traffic lights.
             .overlay { searchField }
         }
-        .frame(height: PanelMetrics.headerControl)
+        // Whatever the buttons decided to be.
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The three actions in **one** capsule, the way a toolbar groups adjacent
-    /// items.
+    /// The three actions, merged into one capsule the way a toolbar groups
+    /// adjacent items.
     ///
-    /// Hand-built rather than three `.buttonStyle(.glass)` buttons, and the
-    /// reason is measured. Native glass buttons do not participate in
-    /// `glassEffectUnion`, so three of them can never merge into one shape. A
-    /// raw `.glassEffect` can — but at 24pt circles it rendered essentially
-    /// nothing at rest over this panel's light material, with only the
-    /// pointer's interactive highlight doing any drawing. At 36pt, which is the
-    /// real toolbar metric, the capsule is plainly visible. So the size that is
-    /// correct is also the size that makes the correct construction work.
+    /// They are ordinary `.glass` buttons — the merge comes from the container,
+    /// not from drawing a capsule by hand: "a spacing value on the container
+    /// that's larger than the spacing of an interior HStack causes Liquid Glass
+    /// effects to blend together at rest". Zero interior spacing is what turns
+    /// three circles into one continuous shape; at 4pt they blended into a
+    /// scalloped chain instead, which is the same mechanism caught halfway.
     private var actionCluster: some View {
         HStack(spacing: 0) {
             actionButton(selectedClip?.isPinned == true ? "pin.slash" : "pin",
@@ -528,16 +522,12 @@ struct ClipboardPanelView: View {
             // the same strength as a button.
             SettingsLink {
                 Image(systemName: "gearshape")
-                    .font(.system(size: PanelMetrics.headerGlyph))
-                    .frame(width: PanelMetrics.headerControl,
-                           height: PanelMetrics.headerControl)
-                    .contentShape(.rect)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
             .help("Settings")
         }
-        .foregroundStyle(.primary)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .controlSize(.extraLarge)
     }
 
     private func actionButton(_ symbol: String,
@@ -545,12 +535,9 @@ struct ClipboardPanelView: View {
                               action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: PanelMetrics.headerGlyph))
-                .frame(width: PanelMetrics.headerControl,
-                       height: PanelMetrics.headerControl)
-                .contentShape(.rect)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
         .disabled(selection == nil)
         .help(help)
     }
@@ -560,10 +547,13 @@ struct ClipboardPanelView: View {
     /// The stock rounded-border style draws an opaque white rectangle with a hard
     /// edge, which is the most out-of-place thing that can sit on a blurred
     /// panel — it was what made the corner beside it look wrong.
+    ///
+    /// The height is not stated: a `TextField` tops out at 24pt whatever control
+    /// size it is given, so the capsule stretches to the row instead, and the row
+    /// is however tall the buttons made it.
     private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: PanelMetrics.headerGlyph))
                 .foregroundStyle(.secondary)
 
             TextField("Search", text: $search)
@@ -581,9 +571,11 @@ struct ClipboardPanelView: View {
                     .transition(.opacity)
             }
         }
-        .font(.body)
-        .padding(.horizontal, 12)
-        .frame(width: PanelMetrics.searchWidth, height: PanelMetrics.headerControl)
+        .padding(.horizontal)
+        // Height first and flexible, so it takes the row's; then the width,
+        // which is the one deliberate dimension.
+        .frame(maxHeight: .infinity)
+        .frame(width: PanelMetrics.searchWidth)
         .glassEffect(.regular.interactive(), in: .capsule)
     }
 
@@ -711,17 +703,32 @@ struct ClipboardPanelView: View {
     /// Extracted because the grid's nested `ForEach`/`Section` plus a card's
     /// modifier chain was more than the type checker would solve in reasonable
     /// time.
+    ///
+    /// A real `Button`, not an `onTapGesture`. The gesture made the panel's
+    /// primary action — click a clipping to paste it — invisible to VoiceOver
+    /// and unreachable by Voice Control and Full Keyboard Access, because a tap
+    /// gesture carries no button trait and no label. `.buttonStyle(.plain)`
+    /// keeps the card looking exactly as it did.
     private func card(for entry: ClipGrouping.Entry) -> some View {
         let clip = entry.clip
-        return ClipCard(clip: clip,
-                        isSelected: clip.persistentModelID == selection,
-                        isKey: presentation.isKeyWindow,
-                        quickPasteDigit: entry.digit)
+        return Button {
+            selection = clip.persistentModelID
+            onPaste(clip, false)
+        } label: {
+            ClipCard(clip: clip,
+                     isSelected: clip.persistentModelID == selection,
+                     isKey: presentation.isKeyWindow,
+                     quickPasteDigit: entry.digit)
+        }
+            .buttonStyle(.plain)
+            // Spoken instead of the card's parts read one by one: the kind, how
+            // long ago, where it came from, then the content. Without this
+            // VoiceOver reads the metadata band and the preview as separate
+            // fragments in layout order, which is not how anyone chooses a
+            // clipping.
+            .accessibilityLabel(Self.spokenDescription(of: clip))
+            .accessibilityHint("Pastes into the previous app")
             .id(clip.persistentModelID)
-            .onTapGesture {
-                selection = clip.persistentModelID
-                onPaste(clip, false)
-            }
             .onDrag { itemProvider(for: clip) }
             .contextMenu {
                 Button("Paste") { onPaste(clip, false) }
@@ -731,6 +738,28 @@ struct ClipboardPanelView: View {
                 Divider()
                 Button("Delete", role: .destructive) { delete(clip) }
             }
+    }
+
+    /// One sentence describing a clipping, for VoiceOver.
+    ///
+    /// Ordered the way someone would ask for it — what it is, when, from where,
+    /// then what is in it — rather than the order the card happens to draw.
+    private static func spokenDescription(of clip: ClipItem) -> String {
+        var parts = [clip.kindLabel]
+        parts.append(clip.copiedAt.formatted(.relative(presentation: .named)))
+        if clip.isFromRemoteDevice {
+            parts.append("from another device")
+        } else if let bundleID = clip.sourceBundleID,
+                  let name = AppAccent.displayName(forBundleID: bundleID) {
+            parts.append("from \(name)")
+        }
+        if clip.isPinned { parts.append("pinned") }
+        if let preview = clip.previewText, !preview.isEmpty {
+            // Truncated: VoiceOver reading several hundred characters of a
+            // clipping before the user can move on is worse than a summary.
+            parts.append(String(preview.prefix(120)))
+        }
+        return parts.joined(separator: ", ")
     }
 
     // MARK: Actions
