@@ -19,6 +19,7 @@ struct SettingsView: View {
     var hotKey: HotKeyBinding?
     var mcp: MCPService?
     var onClearHistory: () -> Void = {}
+    var onSharingChange: () -> Void = {}
 
     var body: some View {
         TabView {
@@ -31,7 +32,7 @@ struct SettingsView: View {
             ShortcutSettings(permissions: permissions, hotKey: hotKey)
                 .tabItem { Label("Shortcut", systemImage: "command") }
 
-            PrivacySettings(settings: settings)
+            PrivacySettings(settings: settings, onSharingChange: onSharingChange)
                 .tabItem { Label("Privacy", systemImage: "hand.raised") }
 
             MCPSettings(settings: settings, mcp: mcp)
@@ -172,6 +173,7 @@ private struct GeneralSettings: View {
 
 private struct PrivacySettings: View {
     var settings: AppSettings
+    var onSharingChange: () -> Void
     @State private var selection: String?
 
     var body: some View {
@@ -184,6 +186,19 @@ private struct PrivacySettings: View {
                 // secrets, and a switch that turns that off is a switch that
                 // eventually gets turned off by accident.
                 Text("These cannot be turned off.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Screen sharing") {
+                Toggle("Hide the panel from screen sharing and screenshots",
+                       isOn: Binding(get: { settings.hidesFromScreenCapture },
+                                     set: { settings.hidesFromScreenCapture = $0
+                                            onSharingChange() }))
+                // Stated because the cost is not obvious: the same flag that
+                // hides the panel from a shared screen also hides it from the
+                // user's own screenshots, which is how a visual bug becomes
+                // impossible to report.
+                Text("Off by default. Turning it on also removes the panel from your own screenshots and recordings.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 
@@ -210,7 +225,7 @@ private struct PrivacySettings: View {
             }
         }
         .formStyle(.grouped)
-        .frame(height: 400)
+        .frame(height: 480)
     }
 
     /// Picks a real app and stores its bundle identifier, rather than asking

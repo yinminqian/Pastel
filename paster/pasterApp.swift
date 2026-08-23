@@ -24,7 +24,8 @@ struct pasterApp: App {
                          launchAtLogin: delegate.launchAtLogin,
                          hotKey: delegate.hotKey,
                          mcp: delegate.mcp,
-                         onClearHistory: delegate.confirmClearHistory)
+                         onClearHistory: delegate.confirmClearHistory,
+                         onSharingChange: delegate.applyPanelSharingType)
         }
         // Otherwise macOS window restoration reopens Settings at every launch
         // just because it was open once — so summoning the panel appears to
@@ -101,7 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let controller = PanelController(container: container,
                                         permissions: permissions,
-                                        launchAtLogin: launchAtLogin)
+                                        launchAtLogin: launchAtLogin,
+                                        settings: settings)
         panelController = controller
 
         // Starts before the panel is shown so history accumulates whether or
@@ -168,6 +170,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         NSApp.terminate(nil)
         return true
+    }
+
+    /// Re-applies the screen-capture setting to the live panel.
+    @MainActor
+    func applyPanelSharingType() {
+        panelController?.applySharingType()
     }
 
     @MainActor

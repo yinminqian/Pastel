@@ -744,6 +744,13 @@ struct ClipboardPanelView: View {
             // Not `.hidden`: a scrollbar that never appears whatever the user's
             // System Settings say is a reliable non-native tell.
             .scrollIndicators(.automatic)
+            // macOS 26 puts a blur-and-dim "edge effect" on scroll views, sized
+            // for content running under a toolbar. Here it painted a dark halo
+            // around the bottom row of cards and blurred the half-visible row —
+            // visibly wrong on a floating panel whose header does not overlap
+            // the grid. Diagnosed by elimination: the backdrop shadows were the
+            // suspect, and removing them changed nothing at the bottom edge.
+            .scrollEdgeEffectHidden()
             // The gutter goes inside the scroll view, so the indicator has
             // somewhere of its own to sit.
             .padding(.trailing, PanelMetrics.scrollerGutter)

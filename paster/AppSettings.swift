@@ -55,6 +55,26 @@ final class AppSettings {
         didSet { defaults.set(excludedApps, forKey: Key.excludedApps) }
     }
 
+    /// Whether the panel is hidden from screen sharing, recording and
+    /// screenshots.
+    ///
+    /// **Off** by default, which is a reversal. The panel used to be excluded
+    /// unconditionally in release builds, on the reasoning that a window showing
+    /// everything you have recently copied is the last thing that should appear
+    /// on a shared screen. True, and the cost turned out to be higher than the
+    /// benefit: `NSWindow.SharingType.none` blocks *screenshots* too, so nobody
+    /// — not the author, not anyone filing a bug — can produce a picture of the
+    /// panel. It cost two round trips of "here is a screenshot" / "that
+    /// screenshot contains no panel" before the penny dropped. Paste, the app
+    /// this one is measured against, does not exclude itself either.
+    ///
+    /// So it becomes a choice, and the default matches the reference app. The
+    /// panel is only on screen while deliberately summoned, which is the narrow
+    /// window this was protecting.
+    var hidesFromScreenCapture: Bool {
+        didSet { defaults.set(hidesFromScreenCapture, forKey: Key.hidesFromScreenCapture) }
+    }
+
     /// Whether the local MCP endpoint runs.
     ///
     /// Off by default, and there is no plan to change that. What it exposes is
@@ -92,6 +112,7 @@ final class AppSettings {
         static let retentionDays = "retention-days"
         static let excludedApps = "user-excluded-apps"
         static let shortcut = "panel-shortcut"
+        static let hidesFromScreenCapture = "hides-from-screen-capture"
         static let mcpEnabled = "mcp-enabled"
         static let mcpPort = "mcp-port"
         static let mcpToken = "mcp-token"
@@ -113,6 +134,7 @@ final class AppSettings {
         self.historyLimit = defaults.integer(forKey: Key.historyLimit)
         self.retentionDays = defaults.integer(forKey: Key.retentionDays)
         self.excludedApps = defaults.stringArray(forKey: Key.excludedApps) ?? []
+        self.hidesFromScreenCapture = defaults.bool(forKey: Key.hidesFromScreenCapture)
         self.mcpEnabled = defaults.bool(forKey: Key.mcpEnabled)
         self.mcpPort = defaults.integer(forKey: Key.mcpPort)
         self.mcpToken = defaults.string(forKey: Key.mcpToken) ?? ""

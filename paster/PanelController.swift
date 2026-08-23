@@ -41,6 +41,7 @@ final class PanelController {
     private let container: ModelContainer
     private let permissions: PermissionsService
     private let launchAtLogin: LaunchAtLogin
+    private let settings: AppSettings
     /// Shared with `MCPService`, which writes to the pasteboard through the
     /// same path so the own-source marker is always stamped the same way.
     let pasteService = PasteService()
@@ -57,10 +58,18 @@ final class PanelController {
 
     init(container: ModelContainer,
          permissions: PermissionsService,
-         launchAtLogin: LaunchAtLogin) {
+         launchAtLogin: LaunchAtLogin,
+         settings: AppSettings) {
         self.container = container
         self.permissions = permissions
         self.launchAtLogin = launchAtLogin
+        self.settings = settings
+    }
+
+    /// Applied on creation and again whenever the setting changes, so the
+    /// switch takes effect without relaunching.
+    func applySharingType() {
+        panel?.sharingType = settings.hidesFromScreenCapture ? .none : .readOnly
     }
 
     func toggle() {
@@ -203,21 +212,12 @@ final class PanelController {
         ]
         panel.isMovableByWindowBackground = true
         panel.animationBehavior = .utilityWindow
-        // Excluded from screen sharing, recording and screenshots. A window
-        // whose entire purpose is showing everything the user has recently
-        // copied is the last thing that should be visible on a shared screen,
-        // and the default is to be visible.
-        //
-        // Debug builds allow capture, because `.none` blocks *screenshots* too
-        // — including the developer's. Without this exception neither the
-        // author nor anyone reporting a visual bug can produce a picture of the
-        // panel, which makes the UI impossible to iterate on and impossible to
-        // file a report about. Release builds keep the guarantee.
-        #if DEBUG
-        panel.sharingType = .readOnly
-        #else
-        panel.sharingType = .none
-        #endif
+        // The user's choice, not the build configuration. This was `#if DEBUG`
+        // with release builds hard-excluded from capture, and `.none` blocks
+        // *screenshots* as well as screen sharing — so nobody running a release
+        // build could produce a picture of the panel, which makes a visual bug
+        // impossible to report. See `AppSettings.hidesFromScreenCapture`.
+        applySharingType()
         panel.onCancel = { [weak self] in self?.hide() }
         let hosting = NSHostingView(
             rootView: ClipboardPanelView(onClose: { [weak self] in self?.hide() },
