@@ -973,7 +973,16 @@ private struct ClipCard: View {
         .frame(height: PanelMetrics.cardHeight)
         // A standard material, which is what the content layer is for. Not
         // Liquid Glass and not a hand-picked alpha over the panel.
-        .background(.regularMaterial)
+        // `in: shape` rather than a bare material followed by `.clipShape`.
+        // The bare form gives the material's AppKit backing a *separate* mask
+        // layer, and at the ScrollView's clip boundary that mask stops being
+        // applied: the partially-clipped bottom row showed the material's
+        // square corners peeking past the rounded shape, ringed by a halo that
+        // was white over light backdrops and dark over dark ones. Confirmed by
+        // discriminator: a flat colour in place of the material, same backdrop,
+        // same clipped row — clean. Giving the material its shape directly
+        // leaves nothing for the boundary to misalign.
+        .background(.regularMaterial, in: shape)
         .clipShape(shape)
         .overlay {
             shape.strokeBorder(isSelected ? ringColor : SelectionStyle.border(isSelected: false),
