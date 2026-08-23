@@ -948,7 +948,10 @@ private struct ClipCard: View {
     /// available by a factor of five.
     private var visualPreview: NSImage? {
         guard clip.kind == .image || clip.kind == .fileURL else { return nil }
-        return clip.thumbnailData.flatMap(NSImage.init(data:))
+        // Through the cache: decoding here looks free and is not, because this
+        // is a computed property read on every pass of every card's body.
+        return ThumbnailCache.image(fingerprint: clip.fingerprint,
+                                    data: clip.thumbnailData)
     }
 
     var body: some View {

@@ -59,6 +59,8 @@ enum ClipboardHistory {
         if !doomed.isEmpty { try? context.save() }
 
         pasteboard?.clearContents()
+        // The decoded thumbnails belong to rows that no longer exist.
+        ThumbnailCache.removeAll()
         return doomed.count
     }
 }
