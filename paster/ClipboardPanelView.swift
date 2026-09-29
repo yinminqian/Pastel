@@ -45,13 +45,20 @@ enum PanelMetrics {
     /// The share of a macOS app icon's canvas its visible tile occupies: 824
     /// of 1024 on Apple's icon grid. The rest is transparent margin.
     static let appIconTileRatio: CGFloat = 824.0 / 1024.0
-    /// Sized so the icon's visible *tile*, not its canvas, is exactly as tall
-    /// as the band.
-    static var cardIconSide: CGFloat { cardBandHeight / appIconTileRatio }
-    /// The canvas margin on each side, which the icon is pushed out by so its
-    /// tile sits flush in the card's top-right corner — and the card's own
-    /// rounded corner, being larger than the icon's, is what crops it.
-    static var cardIconMargin: CGFloat { (cardIconSide - cardBandHeight) / 2 }
+    /// How far the icon's tile runs past the card's top and right edges.
+    /// Flush, the tile's own rounded bottom-right corner left a notch of band
+    /// colour between it and the card's edge; pushed out by this much, that
+    /// corner is outside the card and the band clips it off.
+    static let cardIconOverflow: CGFloat = 10
+    /// Sized so the icon's visible *tile*, not its canvas, reaches from the
+    /// band's bottom edge to past the card's top.
+    static var cardIconSide: CGFloat { (cardBandHeight + cardIconOverflow) / appIconTileRatio }
+    /// How far the icon is pushed out of the top-right corner: its canvas
+    /// margin, so the tile rather than the canvas meets the corner, plus the
+    /// overflow.
+    static var cardIconOffset: CGFloat {
+        (cardIconSide - cardBandHeight - cardIconOverflow) / 2 + cardIconOverflow
+    }
 
     /// Inset from the panel's left and right edges to the first and last card.
     static let rowInset: CGFloat = 24
@@ -1116,7 +1123,7 @@ private struct ClipCard: View {
             Image(nsImage: appIcon)
                 .resizable()
                 .frame(width: PanelMetrics.cardIconSide, height: PanelMetrics.cardIconSide)
-                .offset(x: PanelMetrics.cardIconMargin, y: -PanelMetrics.cardIconMargin)
+                .offset(x: PanelMetrics.cardIconOffset, y: -PanelMetrics.cardIconOffset)
         } else {
             Image(systemName: "doc.on.clipboard")
                 .font(.system(size: 21))
