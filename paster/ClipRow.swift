@@ -105,8 +105,8 @@ enum RowLayout {
     /// Fixed square tiles in rows that scroll down.
     case grid(tile: CGFloat, gap: CGFloat, padding: CGFloat)
 
-    /// The basic style's row, whose items carry room for the ring drawn
-    /// outside each card.
+    /// The basic style's row, whose items carry room for the ring and the
+    /// shadow drawn outside each card.
     static var basic: RowLayout {
         .strip(item: CGSize(width: ClipRow.itemSide, height: ClipRow.itemSide),
                gap: PanelMetrics.cardGap - ClipRow.ringRoom * 2,
@@ -140,8 +140,12 @@ struct ClipRow: NSViewRepresentable {
     /// Whether a list row needs the taller, picture-carrying height.
     var hasPicture: (ClipItem) -> Bool = { _ in false }
 
-    /// Room for the selection ring, which is drawn outside the card.
-    static var ringRoom: CGFloat { PanelMetrics.selectionRingWidth + 1 }
+    /// Room for what is drawn outside the card: the selection ring, and the
+    /// shadow.
+    static var ringRoom: CGFloat {
+        max(PanelMetrics.selectionRingWidth + 1,
+            PanelMetrics.cardShadowRadius * 2 + PanelMetrics.cardShadowY)
+    }
     static var itemSide: CGFloat { PanelMetrics.cardSide + ringRoom * 2 }
     /// The row's height: a card and its ring.
     static var height: CGFloat { itemSide }

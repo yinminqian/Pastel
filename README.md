@@ -1,6 +1,8 @@
 # Pastel
 
-![Pastel — everything you copied, one keystroke away](design/pastel-hero.png)
+**English** · [Chinese](README.zh-CN.md)
+
+![Pastel — everything you copied, one keystroke away](design/readme/hero-en.png)
 
 A clipboard history manager for macOS 26, in Swift 6 and SwiftUI.
 
@@ -11,8 +13,8 @@ left. Click a card to paste it back where you were working.
 ## Why another one
 
 There are good clipboard managers already. This one exists to be small, honest
-about what it stores, and readable end to end — the whole app is about 2,100
-lines. If you want a feature-complete commercial product, buy one. If you want
+about what it stores, and readable end to end — the whole app is about 9,000
+lines of Swift, with no dependencies. If you want a feature-complete commercial product, buy one. If you want
 to see how clipboard capture on modern macOS actually works, read `ClipboardMonitor.swift`.
 
 ## What it does
@@ -36,6 +38,22 @@ to see how clipboard capture on modern macOS actually works, read `ClipboardMoni
 - A configurable shortcut, and an optional
   [local MCP endpoint](#mcp-off-by-default) so an AI tool can search the history.
 
+## Seven panel styles
+
+The same history, the same order and the same keys in every style — what
+changes is the shape of the list and where it sits. Pick one in Settings → Style.
+
+| | |
+| --- | --- |
+| ![Basic](design/readme/en-basic.png) **Basic** — large cards along the bottom of the screen | ![Light Strip](design/readme/en-light-strip.png) **Light Strip** — small tiles in a short strip along the bottom |
+| ![Minimal](design/readme/en-minimal.png) **Minimal** — a two-line list in a small floating panel | ![Top Drop](design/readme/en-top-drop.png) **Top Drop** — a list that drops from the top, like Spotlight |
+| ![Sidebar](design/readme/en-sidebar.png) **Sidebar** — a full-height list at the right edge, grouped by day | ![Grid](design/readme/en-grid.png) **Grid** — small square tiles in the middle of the screen |
+| ![Command Palette](design/readme/en-palette.png) **Command Palette** — a list beside a preview of the selection | |
+
+The illustrations are drawn from made-up clippings by
+[`design/readme/render.py`](design/readme/render.py), not captured from a real
+screen.
+
 ## What it does not do
 
 No sync. No OCR of copied screenshots. One clipping per copy, so copying three
@@ -48,18 +66,26 @@ macOS 26.0 or later, Apple silicon. Xcode 26 to build.
 
 ## Install
 
-There are no notarized downloads, so build it yourself:
+Download `paster.dmg` from [Releases](../../releases), open it and drag
+`paster.app` into `/Applications`. The build is **not notarized** (see below), so
+the first launch is refused by Gatekeeper; clear the quarantine flag once:
 
 ```sh
-git clone <this repo>
-cd paster
+xattr -dr com.apple.quarantine /Applications/paster.app
+```
+
+Or build it yourself:
+
+```sh
+git clone https://github.com/yinminqian/Pastel.git
+cd Pastel
 ./scripts/release.sh
 ```
 
 That runs the tests, builds Release, checks the signing posture, and produces
-`paster.dmg`. Open it and drag `paster.app` into `/Applications`. Launching it from
-`/Applications` rather than from `DerivedData` matters, because launch-at-login
-and the Accessibility grant are both keyed to a stable location and signature.
+`paster.dmg`. Launching from `/Applications` rather than from `DerivedData`
+matters, because launch-at-login and the Accessibility grant are both keyed to a
+stable location and signature.
 
 ### On notarization
 
@@ -67,8 +93,8 @@ and the Accessibility grant are both keyed to a stable location and signature.
 Application certificate, and tells you it is skipping if you do not. An Apple
 Development certificate — the one Xcode installs for you — cannot be notarized.
 Without notarization the DMG runs fine on the machine that built it and is
-refused by Gatekeeper anywhere it is downloaded, which is why there are no
-release binaries here.
+refused by Gatekeeper anywhere it is downloaded until the quarantine flag is
+cleared, as above.
 
 ### Permissions
 
@@ -111,8 +137,9 @@ Neither layer is a toggle. A switch that turns off password protection is a
 switch that eventually gets turned off by accident. You can *add* your own app
 exclusions in Settings → Privacy; you cannot remove the built-in ones.
 
-**Other choices:** the panel sets `sharingType = .none`, so it does not appear in
-screen shares, recordings or screenshots. Universal Clipboard content *is* kept —
+**Other choices:** Settings can hide the panel from screen shares, recordings
+and screenshots (`sharingType = .none`); it is off by default, because the panel
+is only on screen while you deliberately summon it. Universal Clipboard content *is* kept —
 a clipping made on your phone is one you want here — but it is labelled, because
 the frontmost Mac app did not produce it. The store is **not encrypted at rest**;
 it relies on FileVault, same as every other clipboard manager.
@@ -174,7 +201,7 @@ server answers `initialize` for clients that open with it, and answers
 xcodebuild test -project paster.xcodeproj -scheme paster -destination 'platform=macOS'
 ```
 
-55 tests over the parts where a mistake is expensive and silent: both privacy
+160 tests over the parts where a mistake is expensive and silent: both privacy
 layers, the payload archive's round-trip, kind-classification precedence,
 fingerprint stability, image re-encode bounds, and the payload backfill's
 idempotence. The scheme is shared, so CI runs the same command.
@@ -186,7 +213,7 @@ the probe misreading Core Data's framing byte.
 
 ## Architecture
 
-Twelve files, no dependencies.
+No dependencies. The files at the centre of it:
 
 | File | Responsibility |
 | --- | --- |

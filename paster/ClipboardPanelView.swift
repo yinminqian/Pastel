@@ -58,6 +58,11 @@ enum PanelMetrics {
 
     /// Drawn outside the card, so selecting one never shifts its content.
     static let selectionRingWidth: CGFloat = 3
+    /// The card's shadow, which lifts it off the glass in place of a stroke.
+    static let cardShadowRadius: CGFloat = 2
+    static let cardShadowY: CGFloat = 1
+    /// From the header's bottom edge to the cards' top.
+    static let cardTopGap: CGFloat = 6
 
     static let searchWidth: CGFloat = 220
 
@@ -126,7 +131,11 @@ final class PanelPresentation {
 /// halo over whatever is behind it.
 ///
 /// Tinted with the window background colour, so it reads as bright, milky
-/// glass rather than taking on the grey of a dark terminal behind it. The colour adapts, so in Dark Mode the tint is dark.
+/// glass rather than taking on the grey of a dark terminal behind it. The
+/// colour adapts, so in Dark Mode the tint is dark.
+///
+/// Nothing on the header is glass: glass controls on a glass backdrop have
+/// nothing to refract but more glass, and came out as flat white discs.
 private struct PanelBackdrop: View {
     var body: some View {
         Color.clear
@@ -175,8 +184,7 @@ private struct MoreMenu: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 17, weight: .medium))
-                .frame(width: 34, height: 34)
-                .glassEffect(.regular.interactive(), in: .circle)
+                .frame(width: 36, height: 36)
                 .contentShape(.circle)
         }
         .menuStyle(.button)
@@ -490,10 +498,8 @@ struct ClipboardPanelView: View {
             // Pinned.
             HStack(spacing: 8) {
                 searchControl
-                // Beside the field, not inside it: glass in glass reads as a
-                // mistake.
-                if isSearching { kindMenu(glass: true) }
-                GlassTabs(selection: $tab, tinted: false, items: [
+                if isSearching { kindMenu(glass: false) }
+                GlassTabs(selection: $tab, glass: false, items: [
                     .init(.clipboard, String(localized: "Clipboard")) {
                         Image(systemName: "clock.arrow.circlepath")
                     },
@@ -524,8 +530,7 @@ struct ClipboardPanelView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: isSearching ? 15 : 17, weight: .medium))
                     .foregroundStyle(isSearching ? .secondary : .primary)
-                    .frame(width: isSearching ? 30 : 34, height: isSearching ? 30 : 34)
-                    .glassEffect(isSearching ? .identity : .regular.interactive(), in: .circle)
+                    .frame(width: isSearching ? 30 : 36, height: isSearching ? 30 : 36)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
@@ -557,8 +562,10 @@ struct ClipboardPanelView: View {
         .padding(.leading, isSearching ? 4 : 0)
         .padding(.trailing, isSearching ? 10 : 0)
         .frame(height: 36)
-        // The open field is a glass capsule, like the controls beside it.
-        .glassEffect(isSearching ? .regular : .identity, in: .capsule)
+        // The open field is a capsule, like the selected tab beside it.
+        .background {
+            if isSearching { Capsule().fill(.fill.tertiary) }
+        }
     }
 
     /// Narrows the search to one kind: the thing a query cannot say, since an
@@ -750,8 +757,8 @@ struct ClipboardPanelView: View {
                                         presentation: presentation, actions: rowActions))
                     })
                 .frame(height: ClipRow.height)
-                // Puts the cards 68 pt below the panel's top edge.
-                .padding(.top, 2)
+                // The slot's own room above the card counts towards the gap.
+                .padding(.top, PanelMetrics.cardTopGap - ClipRow.ringRoom)
             Spacer(minLength: 0)
         }
     }
@@ -1048,13 +1055,10 @@ private struct ClipCard: View {
         // masked, and its square corners show.
         .background(Color(nsColor: .controlBackgroundColor), in: shape)
         .clipShape(shape)
-        // The card is white and so is the glass behind it in light mode; without
-        // an edge the cards run into the panel and into each other. A hairline,
-        // not a shadow: the item slot leaves only the ring's room around the
-        // card, so a shadow would be cut off square.
-        .overlay {
-            shape.strokeBorder(.separator, lineWidth: 0.5)
-        }
+        // A soft shadow lifts the card off the glass; a stroke read as a drawn
+        // edge. The item slot leaves room for it — see `ClipRow.ringRoom`.
+        .shadow(color: .black.opacity(0.1),
+                radius: PanelMetrics.cardShadowRadius, y: PanelMetrics.cardShadowY)
         .overlay {
             if isSelected {
                 let ring = PanelMetrics.selectionRingWidth
@@ -1536,7 +1540,7 @@ extension ClipboardPanelView {
 
     /// Everything, or only what is pinned.
     private var styledTabs: some View {
-        GlassTabs(selection: $tab, tinted: true, items: [
+        GlassTabs(selection: $tab, glass: true, items: [
             .init(.clipboard, String(localized: "All")) {
                 Image(systemName: "clock.arrow.circlepath")
             },
@@ -1627,21 +1631,31 @@ private struct GlassTabs<Value: Hashable & Sendable>: View {
     }
 
     @Binding var selection: Value
-    let tinted: Bool
+    /// Tinted Liquid Glass under the selected tab, or a plain grey capsule
+    /// for a header that has no glass on it.
+    let glass: Bool
     let items: [Item]
-    @Namespace private var glass
+    @Namespace private var namespace
 
     var body: some View {
-        // Wide enough that the glass, mid-move, still touches both tabs and
-        // reads as one stretching drop rather than a fade.
-        GlassEffectContainer(spacing: 24) {
-            HStack(spacing: 4) {
-                ForEach(items, id: \.value) { item in
-                    tab(item, isSelected: item.value == selection)
-                }
+        Group {
+            if glass {
+                // Wide enough that the glass, mid-move, still touches both
+                // tabs and reads as one stretching drop rather than a fade.
+                GlassEffectContainer(spacing: 24) { tabs }
+            } else {
+                tabs
             }
         }
         .fixedSize()
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 4) {
+            ForEach(items, id: \.value) { item in
+                tab(item, isSelected: item.value == selection)
+            }
+        }
     }
 
     @ViewBuilder
@@ -1655,7 +1669,7 @@ private struct GlassTabs<Value: Hashable & Sendable>: View {
             }
             .font(.system(size: PanelType.caption, weight: .medium))
             .foregroundStyle(isSelected
-                             ? (tinted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                             ? (glass ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
                              : AnyShapeStyle(.secondary))
             .padding(.horizontal, 13)
             .frame(height: 30)
@@ -1664,12 +1678,16 @@ private struct GlassTabs<Value: Hashable & Sendable>: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
 
-        if isSelected {
+        if isSelected, glass {
             label
-                .glassEffect(tinted ? Glass.regular.tint(PanelPalette.accent).interactive()
-                                    : Glass.regular.interactive(),
-                             in: .capsule)
-                .glassEffectID("selected", in: glass)
+                .glassEffect(Glass.regular.tint(PanelPalette.accent).interactive(), in: .capsule)
+                .glassEffectID("selected", in: namespace)
+        } else if isSelected {
+            label
+                .background {
+                    Capsule().fill(.fill.tertiary)
+                        .matchedGeometryEffect(id: "selected", in: namespace)
+                }
         } else {
             label
         }
