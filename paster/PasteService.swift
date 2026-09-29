@@ -32,7 +32,17 @@ final class PasteService {
                into target: NSRunningApplication?,
                plainTextOnly: Bool = false) {
         write(item, plainTextOnly: plainTextOnly)
-        item.lastPastedAt = Date()
+        // Pasting a clipping moves it to the front, as copying it again would:
+        // the row is newest-first, and what you just used is what you are
+        // likeliest to want next. The same rule `ClipboardMonitor` applies to a
+        // repeat copy — which this paste itself will not register as, because
+        // the write carries the own-source marker.
+        let now = Date()
+        item.copiedAt = now
+        item.lastPastedAt = now
+        // Explicit, like every other user-driven change: autosave timing is
+        // unpredictable, and the move should survive a quit right after.
+        try? item.modelContext?.save()
 
         guard AXIsProcessTrusted(), let target, !target.isTerminated else { return }
         activate(target) { [weak self] in self?.postCommandV() }

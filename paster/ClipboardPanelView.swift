@@ -6,128 +6,62 @@
 //
 
 import AppKit
+import ImageIO
 import SwiftData
 import UniformTypeIdentifiers
 import SwiftUI
 
 /// Panel geometry, shared with `PanelController` so the two cannot drift.
+///
+/// A strip docked along the bottom of the screen, one row of square cards that
+/// scrolls sideways, and a thin toolbar above it.
 enum PanelMetrics {
-    /// The window is larger than the visible panel by this much on every side,
-    /// because a window cannot draw outside its own frame and the ambient
-    /// shadow's falloff has to land somewhere.
-    ///
-    /// It costs something real — the transparent margin still swallows mouse
-    /// events, since a borderless window hit-tests its whole frame — so it is
-    /// only as wide as the shadow needs (radius plus y-offset), not as wide as
-    /// it once had to be to contain an outsized appear animation.
-    static let windowMargin: CGFloat = 70
+    /// The visible panel's height. Its width is the screen's.
+    static let panelHeight: CGFloat = 324
 
-    /// The visible panel, in points. Smaller than it was: a list plus a preview
-    /// pane shows more clippings *and* a far larger preview than a grid of
-    /// cards did, in about half the screen area.
-    static let panelSize = CGSize(width: 1000, height: 640)
+    /// Gap between the panel and the screen's left, right and bottom edges.
+    static let screenInset: CGFloat = 8
 
-    /// Inset from the window edge to the content.
-    static let panelPadding: CGFloat = 12
+    /// Transparent room above the panel. There is no shadow to hold any more;
+    /// this is only enough for the glass's edge highlight to not be clipped.
+    static let shadowMargin: CGFloat = 4
 
-    /// Fixed, not adaptive: the arrow keys need to know the stride to move a
-    /// whole row, and a column count the code cannot name is a grid the
-    /// keyboard cannot navigate.
-    static let gridColumns = 4
-    static let cardGap: CGFloat = 12
+    /// The window's height. The window spans the screen's full width.
+    static var windowHeight: CGFloat { panelHeight + screenInset + shadowMargin }
 
-    /// Safari's address field is 40% of its window's width; this is a little
-    /// under that, because a clipboard panel's subject is the grid below. A
-    /// proportion rather than a point value, so it stays right if the panel is
-    /// ever resized — and the only header dimension stated anywhere, because
-    /// width is a layout choice where height is a control metric.
-    static var searchWidth: CGFloat { panelSize.width * 0.34 }
-    /// Between the header's three groups.
-    static let headerGlassSpacing: CGFloat = 10
+    static let cornerRadius: CGFloat = 22
 
-    /// One height for every card.
-    ///
-    /// Content-driven heights were tried and reverted. `LazyVGrid` lays out by
-    /// ROW, so unequal heights do not flow into a masonry — they leave each row
-    /// as tall as its tallest card with the others adrift inside it, and the
-    /// metadata bands stop sharing a baseline. Real masonry needs independently
-    /// flowing columns, which is a different layout entirely.
-    ///
-    /// So the grid is regular on purpose: every band on one line, every footer
-    /// on another. Uniformity is a weakness in a list of wildly different
-    /// content, and it is the right trade against a grid that reads as broken.
-    static let cardHeight: CGFloat = 150
+    /// With `panelHeight`, puts the cards 68 pt below the panel's top edge and
+    /// the toolbar's centre 30 pt below it.
+    static let headerHeight: CGFloat = 62
 
-    /// The card's title zone. Split out because the content zone's height has
-    /// to be stated explicitly — a picture that sizes itself grows its
-    /// container and the card stops matching its neighbours.
-    static let cardBandHeight: CGFloat = 26
-    static var cardContentHeight: CGFloat { cardHeight - cardBandHeight }
+    /// Cards are square.
+    static let cardSide: CGFloat = 232
+    static let cardGap: CGFloat = 24
+    static let cardRadius: CGFloat = 14
+    /// The coloured strip carrying the kind and the age.
+    static let cardBandHeight: CGFloat = 48
+    static let cardFooterHeight: CGFloat = 32
+    /// The share of a macOS app icon's canvas its visible tile occupies: 824
+    /// of 1024 on Apple's icon grid. The rest is transparent margin.
+    static let appIconTileRatio: CGFloat = 824.0 / 1024.0
+    /// Sized so the icon's visible *tile*, not its canvas, is exactly as tall
+    /// as the band.
+    static var cardIconSide: CGFloat { cardBandHeight / appIconTileRatio }
+    /// The canvas margin on each side, which the icon is pushed out by so its
+    /// tile sits flush in the card's top-right corner — and the card's own
+    /// rounded corner, being larger than the icon's, is what crops it.
+    static var cardIconMargin: CGFloat { (cardIconSide - cardBandHeight) / 2 }
 
-    /// Room for the overlay scroller to float in.
-    ///
-    /// The system reports `.overlay` at 17pt here. Hiding the indicator would
-    /// be worse — a scrollbar that never appears whatever the user's System
-    /// Settings say is a reliable non-native tell — so it gets a gutter instead
-    /// of the rightmost card's face.
-    static let scrollerGutter = NSScroller.scrollerWidth(for: .regular,
-                                                        scrollerStyle: .overlay)
+    /// Inset from the panel's left and right edges to the first and last card.
+    static let rowInset: CGFloat = 24
 
-    /// Concentric with the shell: a card sits `panelPadding` from the window
-    /// edge, so 24 − 12 = 12 rather than a number somebody liked.
-    static let cardRadius: CGFloat = 12
+    /// Drawn outside the card, so selecting one never shifts its content.
+    static let selectionRingWidth: CGFloat = 3
 
-    /// The shell's radius. The one hand-picked radius in the app; every
-    /// interior radius derives from it.
-    static let cornerRadius: CGFloat = 24
+    static let searchWidth: CGFloat = 220
 
-    /// Interior radius, derived rather than chosen: the selection pill sits
-    /// 12pt (panel padding) + 6pt (row inset) from the window edge, and
-    /// concentricity gives 24 − 18 = 6.
-    ///
-    /// On macOS 26 an inner shape's radius is a function of its distance to the
-    /// container edge, so a hand-picked interior radius is itself the tell. Used
-    /// as a literal here for shapes that do not hug a panel corner — where the
-    /// concentric formula is meaningless — because the app has one interior
-    /// radius, not because a formula produced it.
-    static let interiorRadius: CGFloat = 6
-
-    /// Radii clamp on small rects, so anything under about 24×24 needs its own.
-    static let thumbnailRadius: CGFloat = 3
-
-    /// Scale the panel starts at when appearing, and returns to when leaving.
-    ///
-    /// Deliberately tiny, and under 1 rather than over it. Apple's Motion
-    /// guidance is blunt about this case: "In apps, generally avoid adding
-    /// motion to UI interactions that occur frequently… you generally want to
-    /// avoid making people spend extra time paying attention to unnecessary
-    /// motion every time they interact with it." A panel summoned dozens of
-    /// times a day is exactly that interaction.
-    ///
-    /// 1.5% is about 16pt of travel on a panel this wide — enough to read as a
-    /// settle rather than a cut, little enough that it never becomes the thing
-    /// you notice. Under 1 because shrinking from larger reads as the window
-    /// rushing at the viewer, where growing into place reads as arriving.
-    static let restingScale: CGFloat = 0.985
-
-    /// "Aim for brevity and precision in feedback animations. When animated
-    /// feedback is brief and precise, it tends to feel lightweight and
-    /// unobtrusive."
-    ///
-    /// The search field takes focus at the *start* of this, not at its end, so
-    /// typing is never gated on the animation — which is the other half of the
-    /// guidance: "don't make people wait for an animation to complete before
-    /// they can do anything, especially if they have to experience the
-    /// animation more than once."
-    static let appearDuration: TimeInterval = 0.20
-    /// Leaving is faster than arriving. On the way out there is nothing to
-    /// read, so getting out of the way promptly is the whole courtesy.
-    static let dismissDuration: TimeInterval = 0.12
-
-    /// Honours the system Reduce Motion setting: no scaling at all, just a
-    /// brief cross-fade. "Make motion optional. Not everyone can or wants to
-    /// experience the motion in your app" — and scaling a surface this large is
-    /// exactly what that setting exists to switch off.
+    /// Honours the system Reduce Motion setting: a fade in place of the slide.
     static var reduceMotion: Bool {
         NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
@@ -135,13 +69,14 @@ enum PanelMetrics {
     static var appearAnimation: Animation {
         reduceMotion
             ? .easeOut(duration: 0.12)
-            // `bounce: 0` is critically damped. A settle is charming the first
-            // time and irritating the fortieth.
-            : .spring(duration: appearDuration, bounce: 0)
+            // Critically damped: it arrives and stops, with no bounce to watch
+            // on something summoned dozens of times a day.
+            : .spring(duration: 0.2, bounce: 0)
     }
 
+    /// Leaving is faster than arriving; there is nothing to read on the way out.
     static var dismissAnimation: Animation {
-        .easeOut(duration: reduceMotion ? 0.1 : dismissDuration)
+        reduceMotion ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18)
     }
 }
 
@@ -156,187 +91,106 @@ final class PanelPresentation {
 
     /// Whether the panel is the key window.
     ///
-    /// Drives the selection's emphasis. A Mac list draws selection in three
-    /// states, not one — accent when the window is key, a de-emphasized grey
-    /// when it is visible but not, and a focus ring for a context-menu target
-    /// that has not changed the selection. Getting this wrong is among the
-    /// most reliable tells of a non-native list, and it matters unusually much
-    /// here because this panel is nearly always on screen while another app is
-    /// frontmost.
+    /// Drives the selection's emphasis: accent when key, a de-emphasized grey
+    /// when visible but not. Observed by `PanelController` rather than read from
+    /// `\.appearsActive`, which is not reliable for a non-activating panel.
     var isKeyWindow: Bool = true
+
+    /// Whether ⌘ is held. The quick-paste numbers are only drawn then: they
+    /// are needed at the moment you reach for ⌘1–⌘9, and the rest of the time
+    /// they are nine bits of clutter.
+    var isCommandHeld: Bool = false
+
+    /// Whether the search field is open. Esc reads this: while searching it
+    /// ends the search, and only once the field is closed does it close the
+    /// panel.
+    var isSearching: Bool = false
+    /// Bumped by Esc while searching. A counter rather than a flag, so the view
+    /// sees every press, not just the first.
+    var searchCancellations: Int = 0
+
+    /// Set by `PanelController` each time the panel opens.
+    var style: PanelStyle = .basic
+    /// The app a paste goes into, for the palette's "Paste into …" button.
+    var targetAppName: String?
 
     init(isVisible: Bool = false) {
         self.isVisible = isVisible
     }
 }
 
-/// The panel's backdrop, and the caster of its shadow.
+/// The panel's backdrop: Liquid Glass, flat.
 ///
-/// A standard material rather than Liquid Glass — see `PanelMaterial` for why
-/// that is the layer this belongs to.
+/// No drop shadow and no stroke. The glass draws its own edge highlight, and a
+/// shadow under a strip docked on the screen's edge only reads as a heavy grey
+/// halo over whatever is behind it.
 ///
-/// AppKit's own window shadow is switched off in `PanelController`. That shadow
-/// is inferred from the window's alpha, and `NSHostingView` paints an opaque
-/// backing across the whole content rect — so AppKit saw a rectangle and drew a
-/// rectangular shadow around the rounded backdrop. Casting the shadow here
-/// instead means it comes from the very shape it belongs to.
+/// Tinted with the window background colour, so it reads as bright, milky
+/// glass rather than taking on the grey of a dark terminal behind it. The colour adapts, so in Dark Mode the tint is dark.
 private struct PanelBackdrop: View {
-    private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: PanelMetrics.cornerRadius, style: .continuous)
+    var body: some View {
+        Color.clear
+            .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)),
+                         in: .rect(cornerRadius: PanelMetrics.cornerRadius, style: .continuous))
     }
+}
+
+/// Which clippings the row shows: all of them, or only the pinned ones.
+nonisolated enum PanelTab: Hashable, Sendable {
+    case clipboard
+    case pinned
+}
+
+/// The ⋯ menu. Its own view because it reads the selection, and whatever
+/// reads the selection redraws on every arrow press — this way that is a menu
+/// button rather than the whole panel.
+private struct MoreMenu: View {
+    let model: RowModel
+    var onPastePlain: (ClipItem) -> Void
+    var onPin: () -> Void
+    var onDelete: () -> Void
+
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
-        PanelMaterial()
-            .clipShape(shape)
-            // A hairline at the edge, in the semantic separator colour rather
-            // than a hand-picked opacity: "use system colors, which already
-            // define variants for all these contexts."
-            .overlay {
-                shape.strokeBorder(.separator, lineWidth: 0.5)
+        let selected = model.selected.flatMap { $0.isGone ? nil : $0 }
+        Menu {
+            Button("Paste as Plain Text") {
+                if let selected { onPastePlain(selected) }
             }
-            // Two layers, because a macOS window shadow is two things: a wide
-            // ambient falloff and a tight contact line at the edge. A single
-            // shadow cannot be both, and tuning one to cover both is what made
-            // this read heavier than Xcode's — the weight was concentration,
-            // not darkness.
-            .shadow(color: .black.opacity(0.16), radius: 40, y: 14)
-            .shadow(color: .black.opacity(0.06), radius: 3, y: 1)
-    }
-}
-
-// MARK: - Selection
-
-/// Selection on a card is a ring, not a fill.
-///
-/// A filled card would drown the content it is meant to be showing, so the
-/// accent goes on the border. Still three states, keyed off the panel's
-/// key-window status rather than view focus: focus lives permanently in the
-/// search field so typing filters, and a focus-based test would render every
-/// selection grey.
-private enum SelectionStyle {
-    static func ring(isSelected: Bool, isKey: Bool) -> Color {
-        guard isSelected else { return .clear }
-        return isKey
-            ? Color(nsColor: .controlAccentColor)
-            : Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-    }
-
-    static func ringWidth(isSelected: Bool) -> CGFloat { isSelected ? 2 : 0.5 }
-
-    static func border(isSelected: Bool) -> Color {
-        isSelected ? .clear : Color(nsColor: .separatorColor)
-    }
-}
-
-/// Coarse time buckets, so the grid carries time context in a handful of
-/// headers instead of repeating a relative timestamp on every card.
-enum ClipEra: String, CaseIterable {
-    case today = "Today"
-    case yesterday = "Yesterday"
-    case week = "Previous 7 Days"
-    case earlier = "Earlier"
-
-    static func of(_ date: Date, now: Date = Date()) -> ClipEra {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return .today }
-        if calendar.isDateInYesterday(date) { return .yesterday }
-        let days = calendar.dateComponents([.day], from: date, to: now).day ?? 0
-        return days <= 7 ? .week : .earlier
-    }
-}
-
-// MARK: - Grouping
-
-/// How the grid is laid out: which sections, in what order, and which cards
-/// carry a quick-paste digit.
-///
-/// Pulled out of the view because the ordering is shared by three things that
-/// have to agree — the sections the grid draws, the list the arrow keys walk,
-/// and the ⌘1–⌘9 digits — and a disagreement between them is invisible to a
-/// test as long as the derivation lives inside a `body`. It was in fact wrong:
-/// after a pin moved a card into the leading section, ⌘1 was drawn on two cards
-/// at once and two cards showed a selection ring.
-enum ClipGrouping {
-    /// A clipping together with the digit that pastes it.
-    ///
-    /// Paired rather than looked up per card. The digit describes a position in
-    /// the grid, so deriving it separately from the grid's own ordering makes
-    /// two sources of truth that can disagree. It also replaces an O(n) scan
-    /// per card with one pass over the list.
-    struct Entry: Identifiable {
-        let clip: ClipItem
-        let digit: Int?
-        var id: PersistentIdentifier { clip.persistentModelID }
-    }
-
-    /// Identified by its title, not by its position.
-    ///
-    /// An offset-based id was the other half of the same bug: pinning inserts a
-    /// section at the front, so every later section's offset shifts by one and
-    /// SwiftUI matches each section's content against the section that used to
-    /// be there — leaving cards with properties from a layout they are no
-    /// longer part of. Titles are unique by construction: one "Pinned" and at
-    /// most one per era.
-    struct Section: Identifiable {
-        let title: String
-        let entries: [Entry]
-        var id: String { title }
-    }
-
-    static let pinnedTitle = "Pinned"
-
-    /// The single ordering everything else reads: pinned first, input order
-    /// preserved within each partition.
-    ///
-    /// The keyboard and the digits both use this, so a pinned card drawn in the
-    /// leading section is also the card ⌘1 pastes and the card the up arrow
-    /// stops at. Sorting only inside `sections` would leave the keyboard
-    /// walking an order the eye does not see.
-    static func ordered(_ clips: [ClipItem]) -> [ClipItem] {
-        let pinned = clips.filter(\.isPinned)
-        guard !pinned.isEmpty else { return clips }
-        return pinned + clips.filter { !$0.isPinned }
-    }
-
-    /// - Parameter clips: already through `ordered`.
-    static func sections(_ clips: [ClipItem], now: Date = Date()) -> [Section] {
-        // 1–9 for the first nine cards overall, numbered in the order the grid
-        // draws them, so the digits match what the eye counts from the top
-        // regardless of where the section boundaries fall.
-        var digits: [PersistentIdentifier: Int] = [:]
-        for (index, clip) in clips.prefix(9).enumerated() {
-            digits[clip.persistentModelID] = index + 1
+            .disabled(selected == nil)
+            // No `keyboardShortcut` here: `shortcutButtons` owns ⌘P and ⌘⌫,
+            // and a second registration risks one keypress toggling twice.
+            Button(selected?.isPinned == true ? String(localized: "Unpin  ⌘P") : String(localized: "Pin  ⌘P"), action: onPin)
+                .disabled(selected == nil)
+            Button("Delete  ⌘⌫", action: onDelete)
+                .disabled(selected == nil)
+            Divider()
+            // Not `SettingsLink`: from a panel that never activates the app,
+            // Settings would open behind whatever is in front.
+            Button("Settings…") {
+                NSApp.activate()
+                openSettings()
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 17, weight: .medium))
+                .frame(width: 34, height: 34)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .contentShape(.circle)
         }
-        func numbered(_ items: [ClipItem]) -> [Entry] {
-            items.map { Entry(clip: $0, digit: digits[$0.persistentModelID]) }
-        }
-
-        var result: [Section] = []
-
-        // Pinned clippings leave their era entirely rather than appearing twice.
-        // A card in two places is a card the arrow keys visit twice and the
-        // digits cannot label, and "kept on purpose" is the more useful thing to
-        // know about it than when it was copied.
-        let pinned = clips.filter(\.isPinned)
-        if !pinned.isEmpty {
-            result.append(Section(title: pinnedTitle, entries: numbered(pinned)))
-        }
-
-        let buckets = Dictionary(grouping: clips.filter { !$0.isPinned }) {
-            ClipEra.of($0.copiedAt, now: now)
-        }
-        result += ClipEra.allCases.compactMap { era in
-            guard let items = buckets[era], !items.isEmpty else { return nil }
-            return Section(title: era.rawValue, entries: numbered(items))
-        }
-        return result
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
     }
 }
 
 // MARK: - Root
 
 struct ClipboardPanelView: View {
-    /// Invoked by the panel's close button.
+    /// Invoked when the panel should go away.
     var onClose: () -> Void = {}
     /// The panel does not paste itself — that needs the previously-frontmost
     /// app, which only `PanelController` knows.
@@ -347,93 +201,141 @@ struct ClipboardPanelView: View {
     var launchAtLogin = LaunchAtLogin()
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openSettings) private var openSettings
     @Query(sort: \ClipItem.copiedAt, order: .reverse) private var clips: [ClipItem]
 
     @State private var search = ""
-    @State private var selection: PersistentIdentifier?
+    /// Open because it was asked for (🔍 or ⌘F), even with nothing typed yet.
+    @State private var searchOpen = false
+    @State private var kindFilter: ClipSearch.KindFilter?
+    @State private var tab: PanelTab = .clipboard
     @FocusState private var searchFocused: Bool
-    /// Held so the grid can be scrolled back to the top while it is hidden.
-    @State private var scrollProxy: ScrollViewProxy?
     @State private var hasSeededSelection = false
-    /// Scopes the action cluster's glass union.
-    @Namespace private var actionGlass
 
-    private var visible: [ClipItem] {
-        // In memory rather than a dynamic @Query predicate: the history is
-        // capped at 500 rows, so filtering here costs nothing and keeps the
-        // query static.
-        let matches = search.isEmpty ? clips : clips.filter {
-            $0.previewText?.localizedCaseInsensitiveContains(search) ?? false
-        }
-        return ClipGrouping.ordered(matches)
+    /// The selection and what else the cards read. Deliberately not read by
+    /// this view's body: see `RowModel`.
+    @State private var rowModel = RowModel()
+
+    /// Newest first, in the order the row draws them — which is also the order
+    /// the arrow keys walk and ⌘1–⌘9 count.
+    ///
+    /// Stored, and recomputed only when one of its inputs changes. As a
+    /// computed property it was re-derived, several times over, on every pass
+    /// of the body — O(n) work on every keystroke.
+    @State private var visible: [ClipItem] = []
+    /// `visible`, cut into the runs the style shows under headings. One run
+    /// for the styles without any.
+    @State private var rowSections: [RowSection] = []
+    @State private var pinnedCount = 0
+
+    private var selection: ClipItem? {
+        get { rowModel.selected }
+        nonmutating set { rowModel.selected = newValue }
     }
 
-    private var selectedClip: ClipItem? {
-        clips.first { $0.persistentModelID == selection }
+    private var query: ClipSearch { ClipSearch(query: search, kind: kindFilter) }
+
+    /// Whether the header shows the full search field rather than the 🔍.
+    private var isSearching: Bool { searchOpen || query.isActive }
+
+    /// Re-derives `visible` and what the cards read from it.
+    ///
+    /// In memory rather than a dynamic @Query predicate, which keeps the query
+    /// static; filtering even 10,000 rows here is well inside a frame, and it
+    /// only happens when the history, the search or the tab changes.
+    private func refreshVisible() {
+        let scoped = tab == .pinned ? clips.filter(\.isPinned) : clips
+        let query = self.query
+        let matching = query.isActive
+            ? scoped.filter {
+                query.matches($0, appName: AppAccent.displayName(forBundleID: $0.sourceBundleID))
+            }
+            : scoped
+        pinnedCount = clips.reduce(0) { $0 + ($1.isPinned ? 1 : 0) }
+
+        switch presentation.style {
+        case .palette:
+            // Pinned first, under their own heading. `visible` takes the same
+            // order, so the arrows and ⌘1–⌘9 walk what the eye sees.
+            let pinned = matching.filter(\.isPinned)
+            let rest = matching.filter { !$0.isPinned }
+            visible = pinned + rest
+            var sections: [RowSection] = []
+            if !pinned.isEmpty {
+                sections.append(RowSection(id: "pinned", title: String(localized: "Pinned"), count: pinned.count, clips: pinned))
+            }
+            rowSections = sections + Self.daySections(rest)
+        case .sidebar:
+            visible = matching
+            rowSections = query.isActive
+                // Ranked by recency still, but one run: day headings over a
+                // handful of results only interrupt them.
+                ? [RowSection(id: "results", clips: matching)]
+                : Self.daySections(matching)
+        default:
+            visible = matching
+            rowSections = [RowSection(id: "all", clips: matching)]
+        }
+
+        rowModel.quickPasteOrder = visible.prefix(9).map(\.persistentModelID)
+        rowModel.search = query.terms.isEmpty ? nil : query
+        // The selection is held as an object, so a clipping deleted from
+        // outside the panel — Clear History, the retention limits — would
+        // otherwise leave it pointing at a deleted model.
+        if let selected = rowModel.selected, !visible.contains(where: { $0 === selected }) {
+            rowModel.selected = visible.first
+        }
+    }
+
+    /// Runs of clippings copied on the same day, newest first: Today,
+    /// Yesterday, then the day's name within the week, then the date.
+    static func daySections(_ clips: [ClipItem]) -> [RowSection] {
+        let calendar = Calendar.current
+        var sections: [RowSection] = []
+        var currentDay: Date?
+        for clip in clips {
+            let day = calendar.startOfDay(for: clip.copiedAt)
+            if day != currentDay {
+                currentDay = day
+                sections.append(RowSection(id: "day-\(Int(day.timeIntervalSince1970))",
+                                           title: dayTitle(day, calendar: calendar),
+                                           clips: []))
+            }
+            sections[sections.count - 1].clips.append(clip)
+        }
+        for index in sections.indices { sections[index].count = sections[index].clips.count }
+        return sections
+    }
+
+    private static func dayTitle(_ day: Date, calendar: Calendar) -> String {
+        if calendar.isDateInToday(day) { return String(localized: "Today") }
+        if calendar.isDateInYesterday(day) { return String(localized: "Yesterday") }
+        let days = calendar.dateComponents([.day], from: day, to: calendar.startOfDay(for: .now)).day ?? 0
+        if days < 7 { return day.formatted(.dateTime.weekday(.wide)) }
+        return day.formatted(.dateTime.day().month(.abbreviated))
     }
 
     var body: some View {
-        ZStack {
-            PanelBackdrop()
-            content
-        }
-        .frame(width: PanelMetrics.panelSize.width, height: PanelMetrics.panelSize.height)
-        .padding(PanelMetrics.windowMargin)
-        // Declared so interior shapes can derive their corners from the shell's
-        // rather than hand-picking one.
-        .containerShape(.rect(cornerRadius: PanelMetrics.cornerRadius, style: .continuous))
-        // Scale and fade only — the window's own frame never moves, so the
-        // layout is never recomputed and nothing reflows mid-animation.
-        .scaleEffect(presentation.isVisible || PanelMetrics.reduceMotion
-                     ? 1 : PanelMetrics.restingScale)
-        .opacity(presentation.isVisible ? 1 : 0)
-        .onChange(of: presentation.isVisible) { _, isVisible in
-            if isVisible {
-                searchFocused = true
-                if selection == nil { selection = visible.first?.persistentModelID }
+        Group {
+            if presentation.style == .basic {
+                basicPanel
             } else {
-                // Reset on the way OUT, not on the way in. Doing it on show
-                // meant the selection change fired the grid's
-                // scroll-to-selection while the panel was already on screen, so
-                // a grid that had been scrolled visibly rewound to the top every
-                // time it was summoned.
-                search = ""
-                resetScroll()
+                styledPanel
+                    // A fresh view per style: the list's layout is fixed when
+                    // its view is made, and must not be carried over.
+                    .id(presentation.style)
             }
         }
-        .onChange(of: search) { _, _ in
-            selection = visible.first?.persistentModelID
-        }
-        .onAppear {
-            guard !hasSeededSelection else { return }
-            hasSeededSelection = true
-            selection = visible.first?.persistentModelID
-        }
-    }
-
-    private var content: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            header
-            if needsAttention { attentionBanner }
-            if visible.isEmpty { emptyState } else { grid }
-        }
-        .padding(PanelMetrics.panelPadding)
-        // Up and down move by a whole row, which is only expressible because
-        // the grid has a FIXED column count. With `.adaptive` columns the code
-        // cannot know the stride, which is how Down used to step one cell to
-        // the right instead of down.
-        .onKeyPress(.upArrow) { move(-PanelMetrics.gridColumns); return .handled }
-        .onKeyPress(.downArrow) { move(PanelMetrics.gridColumns); return .handled }
-        // Left and right move one card, but only while the search field is
-        // empty. With text in it the user is editing and the field editor owns
-        // those keys; empty, they do nothing there and are ours to use.
-        .onKeyPress(.leftArrow) {
-            guard search.isEmpty else { return .ignored }
-            move(-1); return .handled
-        }
-        .onKeyPress(.rightArrow) {
-            guard search.isEmpty else { return .ignored }
-            move(1); return .handled
+        .background { shortcutButtons }
+        .onKeyPress(.leftArrow) { arrow(dx: -1) }
+        .onKeyPress(.rightArrow) { arrow(dx: 1) }
+        .onKeyPress(.upArrow) { arrow(dy: -1) }
+        .onKeyPress(.downArrow) { arrow(dy: 1) }
+        // ⇧↩ pastes as plain text; a plain ↩ is the search field's submit.
+        .onKeyPress(.return, phases: .down) { press in
+            guard press.modifiers.contains(.shift), let clip = visibleSelection else { return .ignored }
+            onPaste(clip, true)
+            return .handled
         }
         // Quick Paste. Command-digit rather than a bare digit, because a bare
         // digit belongs to whatever you are typing in the search field.
@@ -447,195 +349,294 @@ struct ClipboardPanelView: View {
             onPaste(visible[index], press.modifiers.contains(.shift))
             return .handled
         }
+        .onChange(of: presentation.isVisible) { _, isVisible in
+            if isVisible {
+                searchFocused = true
+                // Always the first card, not only when nothing is selected: a
+                // paste moves its card to the front *after* the panel has
+                // gone, so the selection reset on the way out is by now on
+                // what has become the second card.
+                selection = visible.first
+            } else {
+                // Reset on the way OUT, so a re-summoned panel does not visibly
+                // rewind while it is already on screen.
+                endSearch()
+                resetScroll()
+            }
+        }
+        .onChange(of: presentation.style) { _, _ in
+            refreshVisible()
+            selection = visible.first
+        }
+        .onChange(of: clips, initial: true) { _, _ in
+            refreshVisible()
+        }
+        .onChange(of: search) { _, _ in
+            refreshVisible()
+            selection = visible.first
+        }
+        .onChange(of: kindFilter) { _, _ in
+            refreshVisible()
+            selection = visible.first
+        }
+        .onChange(of: isSearching, initial: true) { _, searching in
+            presentation.isSearching = searching
+        }
+        // Esc while searching ends the search; the next one closes the panel.
+        .onChange(of: presentation.searchCancellations) { _, _ in
+            endSearch()
+        }
+        .onChange(of: tab) { _, _ in
+            refreshVisible()
+            selection = visible.first
+            rowModel.scrollToStart?()
+        }
+        .onAppear {
+            guard !hasSeededSelection else { return }
+            hasSeededSelection = true
+            selection = visible.first
+        }
+    }
+
+    /// Which arrows walk the list depends on its shape. Sideways arrows are
+    /// the search field's while it has text; a list's up and down are always
+    /// the list's, so "type, ↓, Return" works.
+    private func arrow(dx: Int = 0, dy: Int = 0) -> KeyPress.Result {
+        switch presentation.style.arrowAxis {
+        case .horizontal:
+            guard dx != 0, search.isEmpty else { return .ignored }
+            move(dx)
+        case .vertical:
+            guard dy != 0 else { return .ignored }
+            move(dy)
+        case .both(let columns):
+            if dy != 0 {
+                move(dy * columns)
+            } else {
+                guard search.isEmpty else { return .ignored }
+                move(dx)
+            }
+        }
+        return .handled
+    }
+
+    private var basicPanel: some View {
+        VStack(spacing: 0) {
+            // The top margin. The panel hangs from the bottom of the window.
+            Spacer(minLength: 0)
+            ZStack {
+                PanelBackdrop()
+                content
+            }
+            .frame(height: PanelMetrics.panelHeight)
+            .containerShape(.rect(cornerRadius: PanelMetrics.cornerRadius, style: .continuous))
+        }
+        .padding([.horizontal, .bottom], PanelMetrics.screenInset)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Slides up out of the bottom of the screen. The window's own frame
+        // never moves: the content is pushed below it and clipped by it, so the
+        // layout is never recomputed mid-animation.
+        .offset(y: presentation.isVisible || PanelMetrics.reduceMotion
+                ? 0 : PanelMetrics.windowHeight)
+        .opacity(presentation.isVisible || !PanelMetrics.reduceMotion ? 1 : 0)
+    }
+
+    private var content: some View {
+        VStack(spacing: 0) {
+            header
+            if visible.isEmpty && !needsAttention { emptyState } else { row }
+        }
+    }
+
+    /// ⌘P and ⌘⌫, which have no visible button of their own any more.
+    ///
+    /// The ⋯ menu names them but cannot perform them: a pop-up menu's key
+    /// equivalents are only live while it is open. These answer the keys —
+    /// invisible, but in the hierarchy, which is what `keyboardShortcut` needs.
+    private var shortcutButtons: some View {
+        ZStack {
+            Button("Pin", action: pinSelected)
+                .keyboardShortcut("p", modifiers: .command)
+            Button("Delete", action: deleteSelected)
+                .keyboardShortcut(.delete, modifiers: .command)
+            Button("Find", action: openSearch)
+                .keyboardShortcut("f", modifiers: .command)
+            // ⌘, is the app menu's, and the app menu is not in the menu bar:
+            // the panel never activates the app, so the menu bar still
+            // belongs to whatever was in front and the keystroke found no
+            // taker. Activating first brings Settings to the front; the panel
+            // then loses key and goes away by itself.
+            Button("Settings") {
+                NSApp.activate()
+                openSettings()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
     }
 
     // MARK: Header
 
-    /// The functional layer, on glass, at the system's own control size.
-    ///
-    /// This started as flat monochrome chrome, on the reasoning that the panel's
-    /// own material was already the functional layer and glass on top would be
-    /// glass on glass. Wrong reading: the guidance puts Liquid Glass in the
-    /// **functional** layer, and a panel's header is functional chrome over
-    /// content — which is exactly where macOS 26 puts a toolbar's glass.
-    ///
-    /// Three groups, matching a toolbar's rhythm: window controls, the field,
-    /// the actions. Not a taste call — in a real toolbar *adjacent*
-    /// `ToolbarItem`s share one glass capsule and `ToolbarSpacer` breaks them
-    /// apart, which is why Safari reads as three groups.
-    ///
-    /// **No sizes are written down here.** Safari's toolbar measures 36pt per
-    /// control; `.controlSize(.extraLarge)` is where that number comes from —
-    /// `.buttonStyle(.glass)` at that size measures 34.5 × 36.5, measured with a
-    /// probe rather than assumed. Note the `ControlSize` documentation claims
-    /// `.extraLarge` "resolves to `.large` on platforms other than visionOS";
-    /// on macOS 26 it does not, and the two differ by 8pt.
+    /// Search and the tabs in the middle, the ⋯ menu at the trailing edge.
     private var header: some View {
-        GlassEffectContainer(spacing: PanelMetrics.headerGlassSpacing) {
-            HStack(spacing: PanelMetrics.headerGlassSpacing) {
-                // Bare, like Safari's. Traffic lights are not glass controls,
-                // and being the real ones they arrive at the system's own size.
-                WindowButtons(onClose: onClose)
-                    .fixedSize()
-
-                Spacer(minLength: PanelMetrics.headerGlassSpacing)
-
-                actionCluster
+        ZStack {
+            HStack {
+                Spacer()
+                moreMenu
             }
-            // Centred on the header rather than laid out between the two sides:
-            // between `Spacer`s the field would drift, because the action
-            // cluster is wider than the traffic lights.
-            .overlay { searchField }
-        }
-        // Whatever the buttons decided to be.
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// The three actions, merged into one Liquid Glass capsule.
-    ///
-    /// The merge is `glassEffectUnion`, not proximity blending. Blending is what
-    /// produced the earlier scalloped chain, and it always will: it fuses each
-    /// button's own shape into its neighbour's, so three circles come out as a
-    /// peanut with two concave waists — 37pt at the glyphs pinching to 26pt
-    /// between them, at every interior spacing tried. A union is a different
-    /// mechanism: it draws ONE shape by fitting the member's own shape to the
-    /// whole group's bounding box, which is why this reads as a single capsule
-    /// with a flat top and bottom. Measured 153.5 × 37.0pt with a 0pt envelope
-    /// dip — the same signature as a hand-drawn capsule and as a real
-    /// `ToolbarItemGroup` in a real titlebar.
-    ///
-    /// Three things are load-bearing, and dropping any one was measured to break
-    /// it:
-    ///
-    /// - `.buttonBorderShape(.capsule)`. A union fits the *member's* shape to
-    ///   the group's box, so `.circle` fits a circle to a 153pt-wide box: one
-    ///   36pt circle centred on the cluster, with the outer two buttons losing
-    ///   their glass entirely.
-    /// - `.glassEffectUnion` on every member, same id, same namespace. Without
-    ///   it this exact code is the scalloped chain again.
-    /// - A `GlassEffectContainer` ancestor. A union with no container is inert —
-    ///   three separate capsules. That requirement is undocumented, which is why
-    ///   the container is declared here rather than borrowed from `header`: a
-    ///   refactor up there must not silently un-merge the cluster. It takes no
-    ///   spacing argument, because spacing governs proximity blending and a
-    ///   union does not use it.
-    ///
-    /// **No sizes are written down.** `.controlSize(.extraLarge)` is the whole
-    /// of the metrics — it is what makes each `.glass` button 36.5pt tall,
-    /// matching the 36pt of every control in Safari's 52pt toolbar. The cluster
-    /// comes out 153.5pt wide against Safari's 108: that is the `.glass` style's
-    /// own horizontal padding at this control size, and it is the price of
-    /// taking the number from the system instead of typing one in.
-    private var actionCluster: some View {
-        GlassEffectContainer {
-            HStack(spacing: 0) {
-                actionButton(selectedClip?.isPinned == true ? "Unpin" : "Pin",
-                             symbol: selectedClip?.isPinned == true ? "pin.slash" : "pin",
-                             help: selectedClip?.isPinned == true
-                                 ? "Unpin selected clipping (Command-P)"
-                                 : "Pin selected clipping (Command-P)",
-                             action: pinSelected)
-                    .keyboardShortcut("p", modifiers: .command)
-
-                // Not `role: .destructive` — a permanently red glyph in chrome
-                // is not a Mac convention. Red belongs on the context menu's
-                // Delete, where AppKit paints it.
-                actionButton("Delete", symbol: "trash",
-                             help: "Delete selected clipping (Command-Delete)",
-                             action: deleteSelected)
-                    .keyboardShortcut(.delete, modifiers: .command)
-
-                // A button rather than a `Menu`: everything the old gear menu
-                // held — launch at login and the two permission shortcuts — is
-                // in Settings now, and a preference in two places is one that
-                // disagrees with itself. It also sidesteps `Menu` refusing to
-                // render `.glass` at the same strength as a button, and a
-                // `SettingsLink` joins the union exactly like a `Button` does.
-                SettingsLink {
-                    Label("Settings", systemImage: "gearshape")
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.capsule)
-                .glassEffectUnion(id: Self.actionClusterUnion, namespace: actionGlass)
-                .labelStyle(.iconOnly)
-                .help("Settings")
+            // The tabs stay while searching, so a search can be scoped to
+            // Pinned.
+            HStack(spacing: 8) {
+                searchControl
+                // Beside the field, not inside it: glass in glass reads as a
+                // mistake.
+                if isSearching { kindMenu(glass: true) }
+                GlassTabs(selection: $tab, tinted: false, items: [
+                    .init(.clipboard, String(localized: "Clipboard")) {
+                        Image(systemName: "clock.arrow.circlepath")
+                    },
+                    .init(.pinned, String(localized: "Pinned")) {
+                        Circle().fill(.red).frame(width: 11, height: 11)
+                    },
+                ])
             }
-            // The only size in the cluster, and it is the system's own.
-            .controlSize(.extraLarge)
+            .animation(.easeOut(duration: 0.15), value: isSearching)
         }
+        .padding(.horizontal, 16)
+        // 1 pt above the frame's centre, which reads as centred against the
+        // cards below.
+        .padding(.bottom, 2)
+        .frame(height: PanelMetrics.headerHeight)
     }
 
-    /// The union's identifier. All three members share it, and the `Glass`
-    /// variant has to match too — a union combines effects with the same shape
-    /// and the same variant.
-    private static let actionClusterUnion = "actionCluster"
-
-    /// One member of the cluster's union.
+    /// 🔍 until it is clicked, ⌘F is pressed or anything is typed; then a
+    /// search field with a type filter, a result count and a clear button.
     ///
-    /// `.disabled` goes after the union deliberately: a disabled member still
-    /// contributes its geometry, so the capsule keeps its full width and flat
-    /// edges when nothing is selected and only the glyphs dim. Measured against
-    /// the enabled cluster — 153.5 × 37.0 either way.
-    ///
-    /// A `Label` rather than a bare `Image`, with `.labelStyle(.iconOnly)`: an
-    /// icon-only button with no text is silent to VoiceOver, and `.help` is a
-    /// tooltip, not an accessibility label. The label is the short name —
-    /// VoiceOver reading "Delete selected clipping, Command-Delete" as the
-    /// button's *name* is worse than reading "Delete"; the sentence belongs in
-    /// the tooltip, where it already is.
-    private func actionButton(_ name: String,
-                              symbol: String,
-                              help: String,
-                              action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(name, systemImage: symbol)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.capsule)
-        .glassEffectUnion(id: Self.actionClusterUnion, namespace: actionGlass)
-        .labelStyle(.iconOnly)
-        .disabled(selection == nil)
-        .help(help)
-    }
-
-    /// A glass capsule, not `.roundedBorder`.
-    ///
-    /// The stock rounded-border style draws an opaque white rectangle with a hard
-    /// edge, which is the most out-of-place thing that can sit on a blurred
-    /// panel — it was what made the corner beside it look wrong.
-    ///
-    /// The height is not stated: a `TextField` tops out at 24pt whatever control
-    /// size it is given, so the capsule stretches to the row instead, and the row
-    /// is however tall the buttons made it.
-    private var searchField: some View {
+    /// The `TextField` is always in the hierarchy, at the same place, and
+    /// always focused — only collapsed while closed. That is what lets typing
+    /// filter from the first keystroke: a field swapped in on the first
+    /// keystroke would drop that keystroke, and focus with it.
+    private var searchControl: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+            Button(action: openSearch) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: isSearching ? 15 : 17, weight: .medium))
+                    .foregroundStyle(isSearching ? .secondary : .primary)
+                    .frame(width: isSearching ? 30 : 34, height: isSearching ? 30 : 34)
+                    .glassEffect(isSearching ? .identity : .regular.interactive(), in: .circle)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .help("Search (⌘F, or just start typing)")
 
-            TextField("Search", text: $search)
+            TextField("Search clipboard", text: $search)
                 .textFieldStyle(.plain)
+                .font(.system(size: 15))
                 .focused($searchFocused)
                 .onSubmit { pasteSelected() }
+                .frame(width: isSearching ? PanelMetrics.searchWidth : 1)
+                .opacity(isSearching ? 1 : 0)
 
-            // Shown only while filtering. A permanent count is decoration, and
-            // inside the capsule it reads as part of the field rather than as a
-            // label that appeared beside it.
-            if !search.isEmpty {
-                Text("\(visible.count) of \(clips.count)")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
+            if isSearching {
+                if query.isActive {
+                    Text(String(localized: "\(visible.count) results"))
+                        .font(.system(size: 12.5).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                Button(action: endSearch) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("End search (Esc)")
             }
         }
-        .padding(.horizontal)
-        // Height first and flexible, so it takes the row's; then the width,
-        // which is the one deliberate dimension.
-        .frame(maxHeight: .infinity)
-        .frame(width: PanelMetrics.searchWidth)
-        .glassEffect(.regular.interactive(), in: .capsule)
+        .padding(.leading, isSearching ? 4 : 0)
+        .padding(.trailing, isSearching ? 10 : 0)
+        .frame(height: 36)
+        // The open field is a glass capsule, like the controls beside it.
+        .glassEffect(isSearching ? .regular : .identity, in: .capsule)
     }
 
-    // MARK: Attention banner
+    /// Narrows the search to one kind: the thing a query cannot say, since an
+    /// image has no text to type.
+    private var kindMenu: some View { kindMenu(glass: false) }
+
+    /// With `glass`, the label is a Liquid Glass capsule, as the new styles'
+    /// other controls are. Applied to the label rather than as `.glass`: a
+    /// `Menu` renders that button style fainter than a `Button` does.
+    private func kindMenu(glass: Bool) -> some View {
+        Menu {
+            Button {
+                kindFilter = nil
+            } label: {
+                Label("All Types", systemImage: "square.grid.2x2")
+            }
+            Divider()
+            ForEach(ClipSearch.KindFilter.allCases) { kind in
+                Button {
+                    kindFilter = kind
+                } label: {
+                    Label(kind.title, systemImage: kind.symbol)
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: kindFilter?.symbol ?? "line.3.horizontal.decrease")
+                Text(kindFilter?.title ?? String(localized: "All"))
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .font(.system(size: glass ? PanelType.caption : 12.5, weight: .medium))
+            .foregroundStyle(kindFilter == nil
+                             ? AnyShapeStyle(glass ? .primary : .secondary)
+                             : AnyShapeStyle(.white))
+            .padding(.horizontal, glass ? 14 : 10)
+            .frame(height: glass ? 34 : 26)
+            .background {
+                if !glass {
+                    Capsule().fill(kindFilter == nil
+                                   ? AnyShapeStyle(.fill.tertiary)
+                                   : AnyShapeStyle(Color.accentColor))
+                }
+            }
+            .glassEffect(glass
+                         ? (kindFilter == nil ? Glass.regular : Glass.regular.tint(PanelPalette.accent)).interactive()
+                         : Glass.identity,
+                         in: .capsule)
+            .contentShape(.capsule)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Filter by type")
+    }
+
+    private func openSearch() {
+        searchOpen = true
+        searchFocused = true
+    }
+
+    /// Clears the query and the filter and closes the field. Focus stays in
+    /// the field, so typing again starts a new search.
+    private func endSearch() {
+        search = ""
+        kindFilter = nil
+        searchOpen = false
+        searchFocused = true
+    }
+
+    private var moreMenu: some View {
+        MoreMenu(model: rowModel,
+                 onPastePlain: { onPaste($0, true) },
+                 onPin: pinSelected,
+                 onDelete: deleteSelected)
+    }
+
+    // MARK: Attention
 
     private var needsAttention: Bool {
         permissions.hotKeyConflict != nil
@@ -643,22 +644,43 @@ struct ClipboardPanelView: View {
             || !permissions.canPasteDirectly
     }
 
-    private var attentionBanner: some View {
-        HStack(spacing: 8) {
-            // The one semantic colour in the chrome, because it maps to a real
-            // state rather than to a category.
+    /// A problem that needs the user, as the first card in the row — where the
+    /// eye lands first — rather than as a banner that pushes the row down.
+    private var attentionCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 24))
                 .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(attentionTitle).font(.body.weight(.medium))
-                Text(attentionDetail).font(.subheadline).foregroundStyle(.secondary)
-            }
-            Spacer()
+                .padding(.bottom, 4)
+            Text(attentionTitle)
+                .font(.system(size: 16, weight: .semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Text(attentionDetail)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .minimumScaleFactor(0.85)
+            Spacer(minLength: 0)
+            attentionButton
+                .controlSize(.small)
+        }
+        .padding(16)
+        .frame(width: PanelMetrics.cardSide, height: PanelMetrics.cardSide, alignment: .topLeading)
+        .background(.fill.tertiary,
+                    in: .rect(cornerRadius: PanelMetrics.cardRadius, style: .continuous))
+    }
+
+    private var attentionButton: some View {
+        attentionAction
+            .buttonStyle(.glass)
+            .buttonBorderShape(.capsule)
+    }
+
+    private var attentionAction: some View {
+        Group {
             if permissions.hotKeyConflict != nil {
-                // A taken shortcut is fixed in this app's own settings, not in
-                // System Settings, so it gets a different destination.
+                // A taken shortcut is fixed in this app's own settings, not
+                // in System Settings, so it gets a different destination.
                 SettingsLink { Text("Change Shortcut") }
-                    .controlSize(.small)
             } else {
                 Button("Open Settings") {
                     if permissions.needsPasteboardAttention {
@@ -667,156 +689,87 @@ struct ClipboardPanelView: View {
                         permissions.openAccessibilitySettings()
                     }
                 }
-                .controlSize(.small)
             }
         }
-        .padding(8)
-        .background(.fill.quaternary, in: .rect(cornerRadius: PanelMetrics.interiorRadius))
+    }
+
+    private var rowActions: RowActions {
+        RowActions(paste: onPaste, togglePin: togglePin, delete: delete)
     }
 
     private var attentionTitle: String {
-        if permissions.needsPasteboardAttention { "Allow clipboard access to keep saving copies" }
+        if permissions.needsPasteboardAttention { String(localized: "Allow clipboard access") }
         else if let taken = permissions.hotKeyConflict { "\(taken) is already taken" }
-        else { "Grant accessibility access to paste directly" }
+        else { String(localized: "Allow accessibility access") }
     }
 
     private var attentionDetail: String {
         if permissions.needsPasteboardAttention {
-            "macOS asks before an app may read the clipboard. Set this app to Allow."
+            "macOS asks before an app may read the clipboard. Set this app to Allow to keep saving copies."
         } else if permissions.hotKeyConflict != nil {
-            "Another app claimed it first. Pick a different one, or click the Dock icon to open the panel."
+            String(localized: "Another app claimed it first. Pick a different shortcut, or click the Dock icon.")
         } else {
-            "Without it, clicking a card copies instead of pasting — press Command-V yourself."
+            String(localized: "Needed to paste directly. Without it, clicking a card copies and you press ⌘V.")
         }
     }
 
-    // MARK: Grid
+    // MARK: Row
 
     private var emptyState: some View {
         VStack(spacing: 6) {
-            Image(systemName: search.isEmpty ? "doc.on.clipboard" : "magnifyingglass")
-                .font(.system(size: 26))
-            Text(search.isEmpty ? "Nothing copied yet" : "No matches").font(.body)
+            Image(systemName: emptySymbol)
+                .font(.system(size: 30))
+            Text(emptyMessage).font(.body)
         }
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Fixed columns, not adaptive. The arrow keys need to know the stride, and
-    /// a layout whose column count the code cannot name is a layout the
-    /// keyboard cannot navigate correctly.
-    private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: PanelMetrics.cardGap),
-              count: PanelMetrics.gridColumns)
+    private var emptySymbol: String {
+        if query.isActive { return "magnifyingglass" }
+        return tab == .pinned ? "pin" : "doc.on.clipboard"
     }
 
-    private var grid: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                // A zero-height anchor above the grid, so resetting the scroll
-                // position returns to the very top rather than to the first
-                // card. Scrolling to the card put the card flush with the top
-                // edge and pushed its section header out of sight, so a
-                // re-summoned panel opened on a grid with no "Pinned" or
-                // "Today" heading at all.
-                Color.clear.frame(height: 0).id(Self.topAnchor)
-
-                LazyVGrid(columns: columns, alignment: .leading, spacing: PanelMetrics.cardGap) {
-                    ForEach(ClipGrouping.sections(visible)) { group in
-                        Section {
-                            ForEach(group.entries) { entry in
-                                card(for: entry)
-                            }
-                        } header: {
-                            // Smaller than the card text and in title case, per
-                            // Apple's sidebar spec — a heading the same size as
-                            // its content is not a heading. Not uppercased small
-                            // caps either; that spelling is the iOS pattern.
-                            Text(group.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 6)
-                                .frame(height: 20, alignment: .leading)
-                        }
-                    }
-                }
-            }
-            // Not `.hidden`: a scrollbar that never appears whatever the user's
-            // System Settings say is a reliable non-native tell.
-            .scrollIndicators(.automatic)
-            // macOS 26 puts a blur-and-dim "edge effect" on scroll views, sized
-            // for content running under a toolbar. Here it painted a dark halo
-            // around the bottom row of cards and blurred the half-visible row —
-            // visibly wrong on a floating panel whose header does not overlap
-            // the grid. Diagnosed by elimination: the backdrop shadows were the
-            // suspect, and removing them changed nothing at the bottom edge.
-            .scrollEdgeEffectHidden()
-            // The gutter goes inside the scroll view, so the indicator has
-            // somewhere of its own to sit.
-            .padding(.trailing, PanelMetrics.scrollerGutter)
-            .onAppear { scrollProxy = proxy }
-            // Only follows the selection while the panel is actually on screen.
-            .onChange(of: selection) { _, id in
-                guard let id, presentation.isVisible else { return }
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
-            }
-        }
+    private var emptyMessage: String {
+        if query.isActive { return String(localized: "No matches") }
+        return tab == .pinned ? String(localized: "Nothing pinned yet — press ⌘P on a card") : String(localized: "Nothing copied yet")
     }
 
-    /// Extracted because the grid's nested `ForEach`/`Section` plus a card's
-    /// modifier chain was more than the type checker would solve in reasonable
-    /// time.
-    ///
-    /// A real `Button`, not an `onTapGesture`. The gesture made the panel's
-    /// primary action — click a clipping to paste it — invisible to VoiceOver
-    /// and unreachable by Voice Control and Full Keyboard Access, because a tap
-    /// gesture carries no button trait and no label. `.buttonStyle(.plain)`
-    /// keeps the card looking exactly as it did.
-    private func card(for entry: ClipGrouping.Entry) -> some View {
-        let clip = entry.clip
-        return Button {
-            selection = clip.persistentModelID
-            onPaste(clip, false)
-        } label: {
-            ClipCard(clip: clip,
-                     isSelected: clip.persistentModelID == selection,
-                     isKey: presentation.isKeyWindow,
-                     quickPasteDigit: entry.digit)
+    /// A card and its ring tall, with the row's own gap beneath it to the
+    /// panel's bottom edge.
+    private var row: some View {
+        VStack(spacing: 0) {
+            ClipRow(sections: rowSections,
+                    showsAttention: needsAttention,
+                    attention: AnyView(attentionCard.padding(ClipRow.ringRoom)),
+                    model: rowModel,
+                    presentation: presentation,
+                    layout: .basic,
+                    cell: { [rowModel, presentation, rowActions] clip in
+                        AnyView(RowCard(clip: clip, model: rowModel,
+                                        presentation: presentation, actions: rowActions))
+                    })
+                .frame(height: ClipRow.height)
+                // Puts the cards 68 pt below the panel's top edge.
+                .padding(.top, 2)
+            Spacer(minLength: 0)
         }
-            .buttonStyle(.plain)
-            // Spoken instead of the card's parts read one by one: the kind, how
-            // long ago, where it came from, then the content. Without this
-            // VoiceOver reads the metadata band and the preview as separate
-            // fragments in layout order, which is not how anyone chooses a
-            // clipping.
-            .accessibilityLabel(Self.spokenDescription(of: clip))
-            .accessibilityHint("Pastes into the previous app")
-            .id(clip.persistentModelID)
-            .onDrag { itemProvider(for: clip) }
-            .contextMenu {
-                Button("Paste") { onPaste(clip, false) }
-                Button("Paste as Plain Text") { onPaste(clip, true) }
-                Divider()
-                Button(clip.isPinned ? "Unpin" : "Pin") { togglePin(clip) }
-                Divider()
-                Button("Delete", role: .destructive) { delete(clip) }
-            }
     }
 
     /// One sentence describing a clipping, for VoiceOver.
     ///
     /// Ordered the way someone would ask for it — what it is, when, from where,
     /// then what is in it — rather than the order the card happens to draw.
-    private static func spokenDescription(of clip: ClipItem) -> String {
+    static func spokenDescription(of clip: ClipItem) -> String {
         var parts = [clip.kindLabel]
         parts.append(clip.copiedAt.formatted(.relative(presentation: .named)))
         if clip.isFromRemoteDevice {
-            parts.append("from another device")
+            parts.append(String(localized: "from another device"))
         } else if let bundleID = clip.sourceBundleID,
                   let name = AppAccent.displayName(forBundleID: bundleID) {
-            parts.append("from \(name)")
+            parts.append(String(localized: "from \(name)"))
         }
-        if clip.isPinned { parts.append("pinned") }
+        if clip.isPinned { parts.append(String(localized: "pinned")) }
         if let preview = clip.previewText, !preview.isEmpty {
             // Truncated: VoiceOver reading several hundred characters of a
             // clipping before the user can move on is worse than a summary.
@@ -830,31 +783,27 @@ struct ClipboardPanelView: View {
     private func move(_ delta: Int) {
         let list = visible
         guard !list.isEmpty else { return }
-        let current = list.firstIndex { $0.persistentModelID == selection } ?? 0
+        let current = list.firstIndex { $0 === selection } ?? 0
         let next = min(max(current + delta, 0), list.count - 1)
-        selection = list[next].persistentModelID
+        selection = list[next]
+    }
+
+    /// The selection, if it is still one of the visible cards.
+    private var visibleSelection: ClipItem? {
+        guard let selection, visible.contains(where: { $0 === selection }) else { return nil }
+        return selection
     }
 
     /// No fallback to "the first item" on a stale selection. Pasting something
     /// the user did not choose into a real document is worse than doing nothing.
     private func pasteSelected() {
-        guard let clip = visible.first(where: { $0.persistentModelID == selection }) else { return }
+        guard let clip = visibleSelection else { return }
         onPaste(clip, false)
     }
 
     private func deleteSelected() {
-        guard let index = visible.firstIndex(where: { $0.persistentModelID == selection })
-        else { return }
-        let doomed = visible[index]
-
-        // Chosen before the delete, because afterwards `visible` has already
-        // shifted and the old index means something different.
-        let survivors = visible.filter { $0.persistentModelID != selection }
-        selection = survivors.indices.contains(index)
-            ? survivors[index].persistentModelID
-            : survivors.last?.persistentModelID
-
-        delete(doomed)
+        guard let clip = visibleSelection else { return }
+        delete(clip)
     }
 
     private func togglePin(_ clip: ClipItem) {
@@ -862,33 +811,39 @@ struct ClipboardPanelView: View {
         // Explicit for the same reason as `delete`: autosave timing is
         // unpredictable, and a pin the user set should not be pending at quit.
         try? modelContext.save()
+        // Not a change to the history's membership, so the query does not
+        // report it — but it moves the clipping in or out of Pinned.
+        refreshVisible()
     }
 
     private func pinSelected() {
-        guard let clip = visible.first(where: { $0.persistentModelID == selection }) else { return }
+        guard let clip = visibleSelection else { return }
         togglePin(clip)
     }
 
+    /// Moves the selection off the clipping first, if it is on it, to the one
+    /// that takes its place — chosen before the delete, because afterwards
+    /// `visible` has already shifted — and so that nothing is left holding a
+    /// deleted model.
     private func delete(_ clip: ClipItem) {
+        if selection === clip, let index = visible.firstIndex(where: { $0 === clip }) {
+            let survivors = visible.filter { $0 !== clip }
+            selection = survivors.indices.contains(index) ? survivors[index] : survivors.last
+        }
         modelContext.delete(clip)
         // Explicit: SwiftData's autosave timing is unpredictable, and a delete
         // the user asked for should not be pending when the app quits.
         try? modelContext.save()
     }
 
-    private static let topAnchor = "grid-top"
-
     private func resetScroll() {
-        // Not `clips.first`: with a pin present the newest clipping is no longer
-        // the topmost card, so the selection has to come from the same ordering
-        // the grid draws.
-        selection = ClipGrouping.ordered(clips).first?.persistentModelID
-        scrollProxy?.scrollTo(Self.topAnchor, anchor: .top)
+        selection = visible.first
+        rowModel.scrollToStart?()
     }
 
     /// Builds a drag payload carrying every stored representation, registered
     /// lazily so a type is only decoded if a drop target asks for it.
-    private func itemProvider(for clip: ClipItem) -> NSItemProvider {
+    static func itemProvider(for clip: ClipItem) -> NSItemProvider {
         let provider = NSItemProvider()
         for representation in clip.representations {
             provider.registerDataRepresentation(
@@ -903,211 +858,246 @@ struct ClipboardPanelView: View {
     }
 }
 
+// MARK: - Row card
+
+/// A card as the row hosts it: the card, its selection, and what clicking,
+/// dragging and right-clicking it do.
+///
+/// Reads the selection and the ⌘ state itself, from `RowModel` and
+/// `PanelPresentation`, so a change to either redraws the cards on screen
+/// rather than the panel.
+///
+/// A real `Button`, not an `onTapGesture`: the gesture made the panel's
+/// primary action invisible to VoiceOver and Voice Control.
+/// `.buttonStyle(.plain)` keeps the card looking like a card. Full Keyboard
+/// Access cannot Tab onto it — its hosting view refuses focus so the search
+/// field keeps it — and reaches the cards with the arrow keys instead.
+struct RowCard: View {
+    let clip: ClipItem
+    let model: RowModel
+    let presentation: PanelPresentation
+    let actions: RowActions
+
+    var body: some View {
+        if clip.isGone {
+            // Replaced as soon as the row catches up; see `ClipItem.isGone`.
+            Color.clear
+        } else {
+            card
+        }
+    }
+
+    private var card: some View {
+        Button {
+            model.selected = clip
+            actions.paste(clip, false)
+        } label: {
+            // Every card on screen re-runs this body when the selection moves,
+            // since each has to ask whether it is the one. `.equatable()` is
+            // what keeps that cheap: only the two cards whose answer changed
+            // go on to rebuild.
+            CardFace(clip: clip,
+                     isSelected: model.flags(for: clip).isSelected,
+                     isKey: presentation.isKeyWindow,
+                     quickPasteDigit: presentation.isCommandHeld ? model.quickPasteDigit(for: clip) : nil,
+                     search: model.search)
+                .equatable()
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Pastes into the previous app")
+        .onDrag { ClipboardPanelView.itemProvider(for: clip) }
+        .contextMenu {
+            Button("Paste") { actions.paste(clip, false) }
+            Button("Paste as Plain Text") { actions.paste(clip, true) }
+            Divider()
+            Button(clip.isPinned ? String(localized: "Unpin") : String(localized: "Pin")) { actions.togglePin(clip) }
+            Divider()
+            Button("Delete", role: .destructive) { actions.delete(clip) }
+        }
+        .padding(ClipRow.ringRoom)
+    }
+}
+
+/// A card and its spoken description, compared by what they show.
+///
+/// The description is here rather than on the button because it formats a
+/// relative date, which is not free, and would otherwise be redone for every
+/// card on screen on every arrow press.
+private struct CardFace: View, Equatable {
+    let clip: ClipItem
+    let isSelected: Bool
+    let isKey: Bool
+    let quickPasteDigit: Int?
+    let search: ClipSearch?
+
+    /// The clipping by identity: its own properties are observed by
+    /// `ClipCard`, which redraws itself when they change.
+    static func == (lhs: CardFace, rhs: CardFace) -> Bool {
+        lhs.clip === rhs.clip && lhs.isSelected == rhs.isSelected && lhs.isKey == rhs.isKey
+            && lhs.quickPasteDigit == rhs.quickPasteDigit && lhs.search == rhs.search
+    }
+
+    var body: some View {
+        if clip.isGone {
+            Color.clear
+        } else {
+            ClipCard(clip: clip, isSelected: isSelected, isKey: isKey,
+                     quickPasteDigit: quickPasteDigit, search: search)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(ClipboardPanelView.spokenDescription(of: clip))
+        }
+    }
+}
+
 // MARK: - Card
 
-/// A clipping as a card, in two zones.
-///
-/// The tonal split is what gives a flat card structure: a strip of `.quaternary`
-/// carrying the metadata, and the content on the card's own material below it.
-/// That device is why Paste's cards read as designed rather than as rectangles —
-/// no border, no shadow, no coloured edge and no gradient is doing the work, so
-/// none of them are needed. Borrowed as a principle; the proportions, the
-/// typography and the arrangement here are our own.
+/// A clipping as a square card: a band in the source app's colour carrying
+/// the kind and the age, the app's icon
+/// cropped into the band's trailing edge, the content on a plain surface below,
+/// and a centred measurement with the quick-paste number at the foot.
 private struct ClipCard: View {
     let clip: ClipItem
     let isSelected: Bool
     let isKey: Bool
     let quickPasteDigit: Int?
-
-    @State private var isHovering = false
-
-    /// The selected card's ring, in the source app's own colour.
-    ///
-    /// This is the one place the derived colour appears, and the layout is what
-    /// keeps it honest: exactly one card is selected, so exactly one coloured
-    /// element is ever on screen. Apple's guidance permits colour "for elements
-    /// that truly benefit from emphasis, such as status indicators", and asks
-    /// you to "refrain from adding colour to the background of multiple
-    /// controls" — which is why every other card, and every badge, stays
-    /// monochrome.
-    ///
-    /// The trade-off, stated plainly: selection is normally the *system* accent,
-    /// the colour the user chose in System Settings, and this overrides it. It
-    /// buys knowing at a glance which app a clipping came from. Falls back to
-    /// the system accent for the many deliberately monochrome icons.
-    private var ringColor: Color {
-        guard isKey else { return SelectionStyle.ring(isSelected: true, isKey: false) }
-        return AppAccent.color(forBundleID: clip.sourceBundleID)
-            ?? Color(nsColor: .controlAccentColor)
-    }
+    /// The active search, for highlighting what matched.
+    var search: ClipSearch? = nil
 
     private var shape: RoundedRectangle {
-        // Concentric with the shell: a card sits `panelPadding` from the window
-        // edge, so its radius is the shell's less that inset.
         RoundedRectangle(cornerRadius: PanelMetrics.cardRadius, style: .continuous)
     }
 
-    /// Whether there is a real picture to show.
-    ///
-    /// When there is, it gets the whole card below the band rather than a
-    /// thumbnail in a corner: the preview *is* the identifying information for
-    /// a screenshot, and a 54pt square of it was smaller than the space
-    /// available by a factor of five.
+    /// The source app's colour; with no source app, a colour for the kind, so
+    /// the row never falls back to a wall of grey.
+    private var bandColor: Color {
+        AppAccent.color(forBundleID: clip.isFromRemoteDevice ? nil : clip.sourceBundleID)
+            ?? Self.kindColor(clip.kind)
+    }
+
+    /// From the same palette as the app colours, so the row stays one family.
+    private static func kindColor(_ kind: ClipKind) -> Color {
+        let palette = AppAccent.palette
+        switch kind {
+        case .text: return palette[4]      // teal
+        case .richText: return palette[7]  // purple
+        case .link: return palette[5]      // blue
+        case .image: return palette[8]     // pink
+        case .fileURL: return palette[1]   // orange
+        case .other: return Color(nsColor: .systemGray)
+        }
+    }
+
+    /// White on the band unless the app's colour is too light to carry it —
+    /// a yellow icon would otherwise put white text on yellow.
+    private var bandForeground: Color {
+        guard let rgb = NSColor(bandColor).usingColorSpace(.sRGB) else { return .white }
+        let luminance = 0.2126 * rgb.redComponent
+            + 0.7152 * rgb.greenComponent
+            + 0.0722 * rgb.blueComponent
+        return luminance > 0.8 ? .black.opacity(0.85) : .white
+    }
+
+    private var ringColor: Color {
+        isKey
+            ? Color(nsColor: .controlAccentColor)
+            : Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+    }
+
+    /// Whether there is a real picture to show — an image, or a file QuickLook
+    /// could render.
     private var visualPreview: NSImage? {
         guard clip.kind == .image || clip.kind == .fileURL else { return nil }
         // Through the cache: decoding here looks free and is not, because this
-        // is a computed property read on every pass of every card's body.
+        // is read on every pass of every card's body.
         return ThumbnailCache.image(fingerprint: clip.fingerprint,
                                     data: clip.thumbnailData)
     }
 
     var body: some View {
+        // This view observes the clipping itself, so it can be asked to redraw
+        // one last time after a delete; see `ClipItem.isGone`.
+        if clip.isGone {
+            Color.clear
+        } else {
+            face
+        }
+    }
+
+    @ViewBuilder
+    private var face: some View {
+        let picture = visualPreview
         VStack(spacing: 0) {
             band
-            if let visualPreview {
-                mediaBody(visualPreview)
-            } else {
-                textBody
+            ZStack(alignment: .bottom) {
+                if let picture {
+                    mediaBody(picture)
+                } else {
+                    preview
+                        .padding(.horizontal, 12)
+                        .padding(.top, 10)
+                        .padding(.bottom, PanelMetrics.cardFooterHeight)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                footer(onPicture: picture != nil)
             }
+            .frame(maxHeight: .infinity)
         }
-        .frame(height: PanelMetrics.cardHeight)
-        // A standard material, which is what the content layer is for. Not
-        // Liquid Glass and not a hand-picked alpha over the panel.
-        // `in: shape` rather than a bare material followed by `.clipShape`.
-        // The bare form gives the material's AppKit backing a *separate* mask
-        // layer, and at the ScrollView's clip boundary that mask stops being
-        // applied: the partially-clipped bottom row showed the material's
-        // square corners peeking past the rounded shape, ringed by a halo that
-        // was white over light backdrops and dark over dark ones. Confirmed by
-        // discriminator: a flat colour in place of the material, same backdrop,
-        // same clipped row — clean. Giving the material its shape directly
-        // leaves nothing for the boundary to misalign.
-        .background(.regularMaterial, in: shape)
+        .frame(width: PanelMetrics.cardSide, height: PanelMetrics.cardSide)
+        // `in: shape` rather than a bare fill followed by `.clipShape`: at the
+        // scroll view's clip boundary a separately masked backing stops being
+        // masked, and its square corners show.
+        .background(Color(nsColor: .controlBackgroundColor), in: shape)
         .clipShape(shape)
+        // The card is white and so is the glass behind it in light mode; without
+        // an edge the cards run into the panel and into each other. A hairline,
+        // not a shadow: the item slot leaves only the ring's room around the
+        // card, so a shadow would be cut off square.
         .overlay {
-            shape.strokeBorder(isSelected ? ringColor : SelectionStyle.border(isSelected: false),
-                               lineWidth: SelectionStyle.ringWidth(isSelected: isSelected))
+            shape.strokeBorder(.separator, lineWidth: 0.5)
         }
-        .shadow(color: .black.opacity(isHovering ? 0.10 : 0), radius: 4, y: 1)
-        .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
-    }
-
-    /// Everything below the band for a clipping with no picture.
-    private var textBody: some View {
-        VStack(spacing: 0) {
-            preview
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.horizontal, 10)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-            footer
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
+        .overlay {
+            if isSelected {
+                let ring = PanelMetrics.selectionRingWidth
+                RoundedRectangle(cornerRadius: PanelMetrics.cardRadius + ring, style: .continuous)
+                    .strokeBorder(ringColor, lineWidth: ring)
+                    .padding(-ring)
+            }
         }
     }
 
-    /// A picture filling the content zone, with its caption laid over it.
-    ///
-    /// The height is stated rather than inferred. A `resizable` image with
-    /// `aspectRatio(.fill)` proposes a size larger than its container and grows
-    /// it — `.clipped()` then trims something that has already pushed the card
-    /// taller than its neighbours. Sizing an empty `Color` and hanging the
-    /// picture off it as an overlay is what keeps the geometry the card's and
-    /// not the image's.
-    ///
-    /// Fill rather than fit, because a letterboxed screenshot leaves two grey
-    /// bands where the picture should be. The caption sits on a gradient scrim:
-    /// text over an arbitrary image needs one, and a dimming layer is what
-    /// Apple's guidance prescribes for exactly this case.
-    private func mediaBody(_ image: NSImage) -> some View {
-        Color.clear
-            .frame(height: PanelMetrics.cardContentHeight)
-            .background {
-                // Behind the picture, so a transparent PNG reads as transparent.
-                Canvas { context, size in
-                    let square = 8.0
-                    for row in 0 ... Int(size.height / square) {
-                        for column in 0 ... Int(size.width / square) {
-                            guard (row + column).isMultiple(of: 2) else { continue }
-                            context.fill(
-                                Path(CGRect(x: Double(column) * square,
-                                            y: Double(row) * square,
-                                            width: square, height: square)),
-                                with: .style(.quaternary)
-                            )
-                        }
-                    }
-                }
-            }
-            .overlay {
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            }
-            .overlay(alignment: .bottom) {
-                LinearGradient(colors: [.black.opacity(0), .black.opacity(0.66)],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(height: 30)
-            }
-            .overlay(alignment: .bottom) {
-                HStack(spacing: 4) {
-                    Text(mediaCaption)
-                        .font(.footnote)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 4)
-                    if let quickPasteDigit {
-                        Text("⌘\(quickPasteDigit)")
-                            .font(.footnote.monospacedDigit())
-                    }
-                }
-                // White on the scrim regardless of appearance: what is
-                // underneath is the user's picture, not the app's background.
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 6)
-            }
-            // Last, so nothing an overlay draws can escape the content zone.
-            .clipped()
-    }
+    // MARK: Band
 
-    /// The name for a file, the size for a bare image — whichever actually
-    /// identifies the thing.
-    private var mediaCaption: String {
-        if clip.kind == .fileURL, let name = fileName { return name }
-        return clip.lengthSummary ?? ""
-    }
-
-    /// The metadata strip. A word for the kind, the time beside it, and the
-    /// source app's real icon at the trailing edge.
     private var band: some View {
-        HStack(spacing: 6) {
-            if clip.isPinned {
-                // Monochrome, like every other badge here. Colour in this
-                // interface is reserved for the one selected card's ring, and a
-                // grid of orange pins would take that distinction away.
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .help("Kept regardless of the history limit")
+        // Negative: SF's line boxes leave the two lines 1 pt further apart
+        // than they read well at this size.
+        VStack(alignment: .leading, spacing: -1) {
+            HStack(spacing: 5) {
+                Text(clip.kindLabel)
+                    .font(.system(size: 15, weight: .medium))
+                if clip.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 11))
+                        .help("Kept regardless of the history limit")
+                }
             }
-            Text(clip.kindLabel)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-
-            Text(compactAge)
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 4)
-
-            icon.frame(width: 16, height: 16)
+            Text(age)
+                .font(.system(size: 12))
+                .opacity(0.75)
         }
-        .padding(.horizontal, 10)
+        .lineLimit(1)
+        .foregroundStyle(bandForeground)
+        .padding(.leading, 12)
+        // Clear of the icon.
+        .padding(.trailing, PanelMetrics.cardBandHeight + 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: PanelMetrics.cardBandHeight)
-        .background(.fill.quaternary)
+        // In a `Rectangle`, stated. The bare `.background(style)` form fills
+        // the container shape — here the panel's rounded rect — so the band
+        // came out with rounded *bottom* corners too, and the card's white
+        // base showed through beneath them as two small white dots.
+        .background(bandColor, in: Rectangle())
+        .overlay(alignment: .topTrailing) { icon }
+        .clipped()
     }
 
     @ViewBuilder
@@ -1115,125 +1105,202 @@ private struct ClipCard: View {
         if clip.isFromRemoteDevice {
             // Checked first: the frontmost app's icon would be a lie here.
             Image(systemName: "iphone.gen3")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 24))
+                .foregroundStyle(bandForeground.opacity(0.9))
+                .frame(width: PanelMetrics.cardBandHeight, height: PanelMetrics.cardBandHeight)
         } else if let appIcon = AppAccent.icon(for: clip.sourceBundleID) {
-            // Never tinted. Real app icons are the most anti-template asset in
-            // the interface: per-item, unrepeatable, and impossible for a
-            // generated layout to have.
-            Image(nsImage: appIcon).resizable()
+            Image(nsImage: appIcon)
+                .resizable()
+                .frame(width: PanelMetrics.cardIconSide, height: PanelMetrics.cardIconSide)
+                .offset(x: PanelMetrics.cardIconMargin, y: -PanelMetrics.cardIconMargin)
         } else {
             Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 21))
+                .foregroundStyle(bandForeground.opacity(0.9))
+                .frame(width: PanelMetrics.cardBandHeight, height: PanelMetrics.cardBandHeight)
         }
     }
 
-    // MARK: Per-kind content
+    /// "now", "4 minutes ago", "yesterday".
+    private var age: String {
+        if Date().timeIntervalSince(clip.copiedAt) < 60 { return String(localized: "now") }
+        return clip.copiedAt.formatted(.relative(presentation: .named, unitsStyle: .wide))
+    }
+
+    // MARK: Content
 
     @ViewBuilder
     private var preview: some View {
         switch clip.kind {
         case .link: linkPreview
-        case .image: imagePreview
+        case .image: placeholder("photo")
         case .fileURL: filePreview
         case .text, .richText: textPreview
         case .other: placeholder("questionmark.square.dashed")
         }
     }
 
+    /// No line limit: the frame decides how many lines fit, and the last one
+    /// gets the ellipsis.
+    private var textPreview: some View {
+        Text(highlighted(clip.previewText ?? ""))
+            .font(clip.prefersMonospacedPreview
+                  ? .system(size: 13, design: .monospaced)
+                  : .system(size: 13))
+            // No extra spacing: 13 pt already lands on a 16 pt line pitch.
+            .lineSpacing(clip.prefersMonospacedPreview ? 2 : 0)
+            .multilineTextAlignment(.leading)
+    }
+
+    /// The text with every match marked, starting near the first one if it
+    /// would otherwise fall below the card's last visible line.
+    private func highlighted(_ text: String) -> AttributedString {
+        guard let search else { return AttributedString(text) }
+        let shown = search.snippet(of: text)
+        var result = AttributedString()
+        var cursor = shown.startIndex
+        for range in search.ranges(in: shown) {
+            result += AttributedString(shown[cursor ..< range.lowerBound])
+            var match = AttributedString(shown[range])
+            match.backgroundColor = Color.yellow.opacity(0.45)
+            match.inlinePresentationIntent = .stronglyEmphasized
+            result += match
+            cursor = range.upperBound
+        }
+        result += AttributedString(shown[cursor...])
+        return result
+    }
+
     /// Host prominent, path quiet. What is useful about a URL is where it
     /// points, and the path is what tells two links to the same site apart.
     private var linkPreview: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(clip.linkURL?.host ?? "")
-                .font(.body.weight(.medium))
-                .lineLimit(1)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(clip.linkURL?.host ?? clip.previewText ?? "")
+                .font(.system(size: 15, weight: .medium))
+                .lineLimit(2)
             if let path = clip.linkURL?.path, path.count > 1 {
                 Text(path)
-                    .font(.footnote.monospaced())
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
             }
         }
     }
 
-    /// Only reached when an image clipping has no derived thumbnail, which means
-    /// the capture could not decode it.
-    private var imagePreview: some View {
-        Image(systemName: "photo")
-            .font(.system(size: 22))
-            .foregroundStyle(.tertiary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    /// Only reached when QuickLook could not preview the file — an archive, a
-    /// binary, something with no visual form. The type icon and the name are
-    /// then all there is to show.
+    /// Only reached when QuickLook could not preview the file. The type icon
+    /// and the name are then all there is to show.
     private var filePreview: some View {
-        HStack(alignment: .top, spacing: 8) {
+        VStack(spacing: 8) {
             Image(nsImage: fileIcon)
                 .resizable()
-                .frame(width: 30, height: 30)
-            Text(fileName ?? "File")
-                .font(.callout)
-                .lineLimit(3)
-            Spacer(minLength: 0)
+                .frame(width: 56, height: 56)
+            Text(fileName ?? String(localized: "File"))
+                .font(.system(size: 13.5))
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
         }
-    }
-
-    private var textPreview: some View {
-        Text(clip.previewText ?? "")
-            .font(clip.prefersMonospacedPreview
-                  ? .system(size: 11, design: .monospaced)
-                  : .callout)
-            .lineSpacing(clip.prefersMonospacedPreview ? 1 : 2)
-            .lineLimit(clip.prefersMonospacedPreview ? 6 : 5)
-            .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func placeholder(_ symbol: String) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 22))
+            .font(.system(size: 30))
             .foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The picture edge to edge, as a photo is best shown — unless it is so far
+    /// from square that filling would crop away what it is (a wide screenshot
+    /// becomes a sliver of its middle), in which case it is fitted over a
+    /// flat grey instead. Not a checkerboard: most such pictures are opaque
+    /// white-backed screenshots, and over grey-and-white squares their edges
+    /// vanish.
+    ///
+    /// Sized by the empty `Color` it hangs off, not by the image: a picture that
+    /// sizes itself grows the card past its neighbours.
+    private func mediaBody(_ image: NSImage) -> some View {
+        let aspect = image.size.height > 0 ? image.size.width / image.size.height : 1
+        let fills = (0.6 ... 1.7).contains(aspect)
+        return Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                if !fills { Rectangle().fill(.quaternary) }
+            }
+            .overlay {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: fills ? .fill : .fit)
+            }
+            .clipped()
+    }
+
     // MARK: Footer
 
-    /// A measurement and a shortcut. Both monochrome — a tinted badge on every
-    /// card is colour on multiple controls at once, which is the thing Apple's
-    /// colour guidance asks you not to do.
-    private var footer: some View {
-        HStack(spacing: 4) {
-            if let length = clip.lengthSummary {
-                Text(length)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+    /// The measurement centred, the quick-paste number at the trailing edge.
+    private func footer(onPicture: Bool) -> some View {
+        ZStack {
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 12))
+                    .foregroundStyle(onPicture ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, onPicture ? 8 : 0)
+                    .padding(.vertical, onPicture ? 3 : 0)
+                    // Over a picture the caption needs something to sit on:
+                    // a dark pill, which reads on any photo.
+                    .background {
+                        if onPicture {
+                            Capsule().fill(.black.opacity(0.4))
+                        }
+                    }
+                    .padding(.horizontal, 24)
             }
-            Spacer(minLength: 4)
             if let quickPasteDigit {
                 Text("⌘\(quickPasteDigit)")
-                    .font(.footnote.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(onPicture ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
+        }
+        .padding(.horizontal, 12)
+        // Raises the caption 1.5 pt off centre, clear of the card's
+        // rounded bottom corners.
+        .padding(.bottom, 3)
+        .frame(height: PanelMetrics.cardFooterHeight)
+        .background {
+            // Text runs to the bottom of the card; the footer covers it rather
+            // than overlapping it.
+            if !onPicture {
+                Color(nsColor: .controlBackgroundColor)
+            }
+        }
+    }
+
+    /// Dimensions for a picture, the name for any other file, the size for
+    /// everything else.
+    private var caption: String? {
+        if let size = imageSize { return "\(Int(size.width)) × \(Int(size.height))" }
+        if clip.kind == .fileURL, let name = fileName { return name }
+        return clip.lengthSummary
+    }
+
+    /// Through the cache: this is read in `body`. A copied image file is read
+    /// from disk; an image on the clipboard itself comes out of the payload,
+    /// which is faulted once per clipping and never again.
+    private var imageSize: CGSize? {
+        guard clip.kind == .image || clip.isImageFile else { return nil }
+        return ThumbnailCache.imageSize(fingerprint: clip.fingerprint) {
+            if let url = clip.fileURL {
+                return CGImageSourceCreateWithURL(url as CFURL, nil)
+            }
+            guard let data = clip.representations
+                .first(where: { ClipboardMonitor.isImageType($0.typeIdentifier) })?.data
+            else { return nil }
+            return CGImageSourceCreateWithData(data as CFData, nil)
         }
     }
 
     // MARK: Derived
-
-    /// "47s", "4m", "2h", "3d" — the long form crowded out the kind label on a
-    /// 230pt card, and at a glance the unit is all that is being read anyway.
-    private var compactAge: String {
-        let seconds = Int(Date().timeIntervalSince(clip.copiedAt))
-        switch seconds {
-        case ..<60: return "\(max(seconds, 0))s"
-        case ..<3600: return "\(seconds / 60)m"
-        case ..<86_400: return "\(seconds / 3600)h"
-        default: return "\(seconds / 86_400)d"
-        }
-    }
 
     private var fileName: String? {
         guard let text = clip.previewText else { return nil }
@@ -1249,9 +1316,641 @@ private struct ClipCard: View {
     }
 }
 
+// MARK: - Styles other than basic
+
+extension ClipboardPanelView {
+    /// The panel of every style but basic: placed in its window, backed by
+    /// glass, and moved in and out the way the style moves.
+    @ViewBuilder
+    fileprivate var styledPanel: some View {
+        let style = presentation.style
+        let shown = presentation.isVisible
+        let reduce = PanelMetrics.reduceMotion
+        placed(style, panel: styledSurface(style))
+            .scaleEffect(shown || reduce ? 1 : style.hiddenScale,
+                         anchor: style == .topDrop ? .top : .center)
+            .offset(shown || reduce
+                    ? .zero
+                    : style.hiddenOffset(windowSize: CGSize(width: 0, height: LightStripMetrics.windowHeight)))
+            .opacity(shown ? 1 : (reduce || style.fadesWhileMoving ? 0 : 1))
+    }
+
+    /// Where the panel sits in its window. The window is sized to the panel
+    /// plus clear room for its shadow; see `PanelStyle.windowFrame(on:)`.
+    @ViewBuilder
+    private func placed(_ style: PanelStyle, panel: some View) -> some View {
+        let margin = PanelStyle.shadowMargin
+        switch style {
+        case .lightStrip:
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                panel
+                    .frame(height: LightStripMetrics.panelHeight)
+                    .overlay(alignment: .topLeading) {
+                        stripSearch
+                            .offset(x: LightStripMetrics.rowInset, y: -50)
+                    }
+            }
+            .padding([.horizontal, .bottom], PanelStyle.edgeInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .sidebar:
+            panel
+                .frame(width: SidebarMetrics.width)
+                .frame(maxHeight: .infinity)
+                .padding(.leading, margin)
+                .padding(.vertical, margin)
+                .padding(.trailing, PanelStyle.edgeInset)
+        case .basic, .minimal, .topDrop, .grid, .palette:
+            panel
+                .frame(width: style.panelSize.width, height: style.panelSize.height)
+                .padding(margin)
+        }
+    }
+
+    private func styledSurface(_ style: PanelStyle) -> some View {
+        let shape = RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
+        return styledContent(style)
+            .clipShape(shape)
+            .background {
+                ZStack {
+                    if style.isFloating {
+                        // Glass casts no shadow of its own; a faint fill
+                        // beneath it does.
+                        shape.fill(Color(nsColor: .windowBackgroundColor).opacity(0.3))
+                            .shadow(color: .black.opacity(0.22), radius: 22, y: 16)
+                            .shadow(color: .black.opacity(0.1), radius: 1.5, y: 1)
+                    }
+                    Color.clear
+                        .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)),
+                                     in: shape)
+                }
+            }
+            .containerShape(shape)
+    }
+
+    @ViewBuilder
+    private func styledContent(_ style: PanelStyle) -> some View {
+        switch style {
+        case .minimal:
+            VStack(spacing: 0) {
+                queryLine
+                listOrEmpty(.minimal, headings: false)
+            }
+        case .topDrop:
+            VStack(spacing: 0) {
+                queryLine
+                listOrEmpty(.topDrop, headings: false)
+            }
+        case .sidebar:
+            VStack(spacing: 0) {
+                queryLine
+                listOrEmpty(.sidebar, headings: true)
+            }
+        case .grid:
+            VStack(spacing: 0) {
+                queryLine
+                withEmptyState(
+                    ClipRow(sections: rowSections, showsAttention: needsAttention,
+                            attention: AnyView(attentionItem(compact: false)),
+                            model: rowModel, presentation: presentation,
+                            layout: .grid(tile: GridMetrics.tile, gap: GridMetrics.gap,
+                                          padding: GridMetrics.padding),
+                            cell: tileCell(size: CGSize(width: GridMetrics.tile, height: GridMetrics.tile),
+                                           padding: GridMetrics.tilePadding,
+                                           radius: GridMetrics.tileRadius, lines: 5))
+                )
+            }
+        case .lightStrip:
+            withEmptyState(
+                ClipRow(sections: rowSections, showsAttention: needsAttention,
+                        attention: AnyView(attentionItem(compact: false)),
+                        model: rowModel, presentation: presentation,
+                        layout: .strip(item: LightStripMetrics.tile, gap: LightStripMetrics.tileGap,
+                                       inset: LightStripMetrics.rowInset),
+                        cell: tileCell(size: LightStripMetrics.tile,
+                                       padding: LightStripMetrics.tilePadding,
+                                       radius: LightStripMetrics.tileRadius, lines: 4))
+                    .frame(height: LightStripMetrics.tile.height)
+                    .padding(.vertical, LightStripMetrics.verticalPadding)
+            )
+        case .palette:
+            paletteContent
+        case .basic:
+            EmptyView()
+        }
+    }
+
+    // MARK: Lists and tiles
+
+    /// The list with the empty state laid over it when there is nothing to
+    /// show — over it rather than instead of it. Swapping the list's view out
+    /// and back as a search narrows to nothing took the keyboard from the
+    /// search field, so the rest of what was typed went nowhere.
+    private func withEmptyState(_ list: some View) -> some View {
+        let isEmpty = visible.isEmpty && !needsAttention
+        return ZStack {
+            list.opacity(isEmpty ? 0 : 1)
+            if isEmpty { emptyState }
+        }
+    }
+
+    private func listOrEmpty(_ metrics: ListMetrics, headings: Bool) -> some View {
+        withEmptyState(
+            ClipRow(sections: rowSections, showsAttention: needsAttention,
+                    attention: AnyView(attentionItem(compact: true)),
+                    model: rowModel, presentation: presentation,
+                    layout: .list(metrics),
+                    cell: { [rowModel, presentation, rowActions] clip in
+                        AnyView(ClipCell(clip: clip, model: rowModel, presentation: presentation,
+                                         actions: rowActions,
+                                         selectsBeforePasting: presentation.style == .palette) { state, onPin in
+                            ListRowFace(clip: clip, state: state, metrics: metrics, onPin: onPin)
+                        })
+                    },
+                    header: { section in
+                        AnyView(SectionHeading(section: section, emphasised: presentation.style == .palette))
+                    },
+                    hasPicture: { clip in
+                        (clip.kind == .image || clip.isImageFile) && clip.thumbnailData != nil
+                    })
+        )
+    }
+
+    private func tileCell(size: CGSize, padding: CGFloat, radius: CGFloat,
+                          lines: Int) -> (ClipItem) -> AnyView {
+        { [rowModel, presentation, rowActions] clip in
+            AnyView(ClipCell(clip: clip, model: rowModel, presentation: presentation,
+                             actions: rowActions) { state, onPin in
+                TileFace(clip: clip, state: state, size: size, padding: padding,
+                         radius: radius, textLines: lines, onPin: onPin)
+            })
+        }
+    }
+
+    private func attentionItem(compact: Bool) -> some View {
+        AttentionItem(title: attentionTitle, detail: attentionDetail,
+                      action: AnyView(attentionButton), compact: compact)
+    }
+
+    // MARK: Search
+
+    /// The search bar across the top of the panel: the query, the kind
+    /// filter, and the switch between everything and the pinned clippings.
+    ///
+    /// The field is always focused, so typing filters from the first
+    /// keystroke without clicking into it.
+    private var queryLine: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.secondary)
+                searchField(placeholder: String(localized: "Search"), size: PanelType.search)
+                searchAccessories
+                styledTabs
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 12)
+            .frame(height: 56)
+            Rectangle().fill(.separator).frame(height: 0.5)
+        }
+    }
+
+    /// The light strip keeps its height for the tiles: its search bar floats
+    /// above it, at the leading end.
+    private var stripSearch: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.secondary)
+            searchField(placeholder: String(localized: "Search"), size: PanelType.body)
+                .frame(width: 260)
+            searchAccessories
+            styledTabs
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 6)
+        .frame(height: 44)
+        .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)), in: .capsule)
+    }
+
+    /// Everything, or only what is pinned.
+    private var styledTabs: some View {
+        GlassTabs(selection: $tab, tinted: true, items: [
+            .init(.clipboard, String(localized: "All")) {
+                Image(systemName: "clock.arrow.circlepath")
+            },
+            .init(.pinned, pinnedCount > 0 ? String(localized: "Pinned \(pinnedCount)") : String(localized: "Pinned")) {
+                Image(systemName: "pin.fill")
+            },
+        ])
+    }
+
+    private func searchField(placeholder: String, size: CGFloat) -> some View {
+        TextField(placeholder, text: $search)
+            .textFieldStyle(.plain)
+            .font(.system(size: size))
+            .focused($searchFocused)
+            .onSubmit { pasteSelected() }
+    }
+
+    @ViewBuilder
+    private var searchAccessories: some View {
+        if query.isActive {
+            Text(String(localized: "\(visible.count) results"))
+                .font(.system(size: PanelType.caption).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        }
+        if query.isActive {
+            Button(action: endSearch) {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Clear search (Esc)")
+        }
+        kindMenu(glass: true)
+    }
+
+    // MARK: Palette
+
+    private var paletteContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(.secondary)
+                searchField(placeholder: String(localized: "Search \(clips.count) clippings…"), size: 21)
+                if query.isActive {
+                    Text(String(localized: "\(visible.count) results"))
+                        .font(.system(size: PanelType.caption).monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
+                kindMenu(glass: true)
+                styledTabs
+            }
+            .padding(.leading, 26)
+            .padding(.trailing, 16)
+            .frame(height: 76)
+            Rectangle().fill(.separator).frame(height: 0.5)
+            HStack(spacing: 0) {
+                listOrEmpty(.palette, headings: true)
+                    .frame(width: 440)
+                Rectangle().fill(.separator).frame(width: 0.5)
+                PalettePreview(model: rowModel, presentation: presentation, actions: rowActions)
+            }
+            Rectangle().fill(.separator).frame(height: 0.5)
+            PaletteFooter(total: clips.count, pinned: pinnedCount)
+        }
+    }
+}
+
+/// Tabs whose selection is one piece of Liquid Glass. Only the chosen tab
+/// carries glass; the others are bare labels. The glass has one identity, so
+/// choosing another tab moves it there — it stretches across and settles,
+/// rather than two buttons swapping looks.
+///
+/// `tinted` gives the glass the accent colour, for the bars of the styled
+/// panels; clear glass suits the basic style's quieter header.
+private struct GlassTabs<Value: Hashable & Sendable>: View {
+    struct Item {
+        let value: Value
+        let title: String
+        let icon: AnyView
+
+        init(_ value: Value, _ title: String, @ViewBuilder icon: () -> some View) {
+            self.value = value
+            self.title = title
+            self.icon = AnyView(icon())
+        }
+    }
+
+    @Binding var selection: Value
+    let tinted: Bool
+    let items: [Item]
+    @Namespace private var glass
+
+    var body: some View {
+        // Wide enough that the glass, mid-move, still touches both tabs and
+        // reads as one stretching drop rather than a fade.
+        GlassEffectContainer(spacing: 24) {
+            HStack(spacing: 4) {
+                ForEach(items, id: \.value) { item in
+                    tab(item, isSelected: item.value == selection)
+                }
+            }
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func tab(_ item: Item, isSelected: Bool) -> some View {
+        let label = Button {
+            withAnimation(.spring(duration: 0.35, bounce: 0.2)) { selection = item.value }
+        } label: {
+            HStack(spacing: 6) {
+                item.icon
+                Text(item.title).monospacedDigit()
+            }
+            .font(.system(size: PanelType.caption, weight: .medium))
+            .foregroundStyle(isSelected
+                             ? (tinted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+                             : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 13)
+            .frame(height: 30)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+        if isSelected {
+            label
+                .glassEffect(tinted ? Glass.regular.tint(PanelPalette.accent).interactive()
+                                    : Glass.regular.interactive(),
+                             in: .capsule)
+                .glassEffectID("selected", in: glass)
+        } else {
+            label
+        }
+    }
+}
+
+// MARK: - Palette parts
+
+/// The selected clipping at full size, beside the palette's list.
+///
+/// Its own view, reading the selection itself, so an arrow press redraws the
+/// preview and two rows and nothing else. What it shows while the arrows move
+/// is what is already in memory — the stored preview and thumbnail; the full
+/// text or picture is read only once the selection has rested for 150 ms.
+private struct PalettePreview: View {
+    let model: RowModel
+    let presentation: PanelPresentation
+    let actions: RowActions
+
+    @State private var fullText: String?
+    @State private var fullImage: NSImage?
+    /// The clipping on show: the selection, once it has been still for a
+    /// moment. A held arrow key moves the selection thirty times a second,
+    /// and laying out a preview for each of those was most of what the
+    /// palette's arrows cost.
+    @State private var shown: ClipItem?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Group {
+            if let clip = shown, !clip.isGone {
+                content(clip)
+                    .task(id: clip.persistentModelID) {
+                        fullText = nil
+                        fullImage = nil
+                        try? await Task.sleep(for: .milliseconds(150))
+                        guard !Task.isCancelled, !clip.isGone else { return }
+                        load(clip)
+                    }
+            } else {
+                empty
+            }
+        }
+        .task(id: model.selected?.persistentModelID) {
+            let selected = model.selected
+            // At once when nothing is shown yet; otherwise after a pause.
+            if shown != nil {
+                try? await Task.sleep(for: .milliseconds(50))
+                guard !Task.isCancelled else { return }
+            }
+            shown = selected
+        }
+    }
+
+    private var empty: some View {
+        Group {
+            VStack(spacing: 6) {
+                Image(systemName: "doc.on.clipboard").font(.system(size: 34))
+                Text("Nothing selected").font(.system(size: PanelType.body))
+            }
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func load(_ clip: ClipItem) {
+        if let url = clip.fileURL, clip.isImageFile {
+            fullImage = NSImage(contentsOf: url)
+            return
+        }
+        guard clip.kind == .text || clip.kind == .richText || clip.kind == .link else { return }
+        let plain = NSPasteboard.PasteboardType.string.rawValue
+        if let data = clip.representations.first(where: { $0.typeIdentifier == plain })?.data,
+           let text = String(data: data, encoding: .utf8) {
+            // Capped: a preview has no use for a whole log file, and laying
+            // one out would stall.
+            fullText = String(text.prefix(20_000))
+        }
+    }
+
+    private func content(_ clip: ClipItem) -> some View {
+        let visual = ClipVisual(clip)
+        return VStack(alignment: .leading, spacing: 16) {
+            header(clip)
+            previewBody(clip, visual)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(PanelPalette.inset(scheme), in: .rect(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(PanelPalette.hairline(scheme), lineWidth: 0.5)
+                }
+            meta(clip)
+            buttons(clip)
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+    }
+
+    private func header(_ clip: ClipItem) -> some View {
+        HStack(spacing: 12) {
+            AppBadge(clip: clip, side: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(clip.isFromRemoteDevice
+                     ? String(localized: "Another device")
+                     : AppAccent.displayName(forBundleID: clip.sourceBundleID) ?? String(localized: "Unknown app"))
+                    .font(.system(size: PanelType.body, weight: .semibold))
+                Text("\(clip.kindLabel) · copied \(clip.copiedAt.formatted(.relative(presentation: .named)))")
+                    .font(.system(size: PanelType.caption))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                actions.togglePin(clip)
+            } label: {
+                Label(clip.isPinned ? String(localized: "Unpin") : String(localized: "Pin"), systemImage: clip.isPinned ? "pin.fill" : "pin")
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .controlSize(.extraLarge)
+            .tint(clip.isPinned ? PanelPalette.accent : nil)
+            .help(clip.isPinned ? String(localized: "Unpin (⌘P)") : String(localized: "Pin (⌘P)"))
+        }
+    }
+
+    @ViewBuilder
+    private func previewBody(_ clip: ClipItem, _ visual: ClipVisual) -> some View {
+        switch visual {
+        case .picture(let thumbnail, _, _):
+            Image(nsImage: fullImage ?? thumbnail)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(14)
+        case .colour(let colour, let hex):
+            VStack(alignment: .leading, spacing: 12) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(colour)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text(hex).font(.system(size: 18, weight: .medium, design: .monospaced))
+            }
+            .padding(18)
+        case .file(let icon, let name, let size):
+            VStack(spacing: 10) {
+                Image(nsImage: icon).resizable().frame(width: 96, height: 96)
+                Text(name).font(.system(size: PanelType.body, weight: .medium))
+                if let size { Text(size).font(.system(size: PanelType.caption)).foregroundStyle(.secondary) }
+                if let path = clip.fileURL?.deletingLastPathComponent().path {
+                    Text(path)
+                        .font(.system(size: PanelType.caption))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(18)
+        case .link(let host, _):
+            VStack(alignment: .leading, spacing: 8) {
+                Text(host).font(.system(size: 18, weight: .semibold))
+                Text(fullText ?? clip.previewText ?? "")
+                    .font(.system(size: PanelType.body))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+        case .text(let text, let monospaced):
+            ScrollView {
+                Text(fullText ?? text)
+                    .font(monospaced
+                          ? .system(size: PanelType.mono, design: .monospaced)
+                          : .system(size: PanelType.body))
+                    .lineSpacing(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 18)
+            }
+            .scrollIndicators(.never)
+        }
+    }
+
+    private func meta(_ clip: ClipItem) -> some View {
+        HStack(spacing: 20) {
+            if let size = clip.lengthSummary { metaItem("Size", size) }
+            if let text = fullText ?? clip.previewText,
+               clip.kind == .text || clip.kind == .richText {
+                metaItem("Lines", "\(text.split(separator: "\n", omittingEmptySubsequences: false).count)")
+            }
+            metaItem("Copied", clip.copiedAt.formatted(date: .abbreviated, time: .shortened))
+            Spacer()
+        }
+    }
+
+    private func metaItem(_ label: LocalizedStringKey, _ value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(label).foregroundStyle(.secondary)
+            Text(value).monospacedDigit()
+        }
+        .font(.system(size: PanelType.caption))
+    }
+
+    /// Liquid Glass throughout: the paste as the one prominent, tinted
+    /// button, the rest as clear glass beside it. Sizes come from the control
+    /// size, not from numbers written here.
+    private func buttons(_ clip: ClipItem) -> some View {
+        GlassEffectContainer {
+            HStack(spacing: 10) {
+                Button {
+                    actions.paste(clip, false)
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(presentation.targetAppName.map { String(localized: "Paste into \($0)") } ?? String(localized: "Paste"))
+                        Image(systemName: "return")
+                    }
+                    .font(.system(size: PanelType.body, weight: .semibold))
+                    .padding(.horizontal, 6)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(PanelPalette.accent)
+                secondaryButton(String(localized: "Plain text"), keys: "⇧↩") { actions.paste(clip, true) }
+                secondaryButton(clip.isPinned ? String(localized: "Unpin") : String(localized: "Pin"), keys: "⌘P") { actions.togglePin(clip) }
+            }
+            .buttonBorderShape(.capsule)
+            .controlSize(.extraLarge)
+        }
+    }
+
+    private func secondaryButton(_ title: String, keys: String,
+                                 action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(title)
+                Text(keys).foregroundStyle(.secondary)
+            }
+            .font(.system(size: PanelType.body, weight: .medium))
+            .padding(.horizontal, 4)
+        }
+        .buttonStyle(.glass)
+    }
+}
+
+/// The palette's foot: how much there is, and the keys.
+private struct PaletteFooter: View {
+    let total: Int
+    let pinned: Int
+
+    var body: some View {
+        HStack(spacing: 14) {
+            HStack(spacing: 6) {
+                Circle().fill(PanelPalette.accent).frame(width: 7, height: 7)
+                Text("\(total) clippings · \(pinned) pinned")
+            }
+            .foregroundStyle(.secondary)
+            Spacer()
+            hint("↩", "Paste")
+            hint("⇧↩", "Plain text")
+            hint("⌘1–9", "Quick")
+            hint("⌘P", "Pin")
+            hint("⌘⌫", "Delete")
+        }
+        .font(.system(size: PanelType.caption))
+        .padding(.horizontal, 22)
+        .frame(height: 48)
+    }
+
+    private func hint(_ keys: String, _ label: LocalizedStringKey) -> some View {
+        HStack(spacing: 6) {
+            Text(keys)
+                .font(.system(size: 12.5, weight: .medium))
+                .padding(.horizontal, 7)
+                .frame(height: 24)
+                .background(.fill.tertiary, in: .rect(cornerRadius: 5, style: .continuous))
+            Text(label).foregroundStyle(.secondary)
+        }
+    }
+}
 
 #Preview {
     ClipboardPanelView()
+        .frame(width: 1200, height: PanelMetrics.windowHeight)
         .modelContainer(for: [ClipItem.self, ClipPayload.self, ClipRepresentation.self],
                         inMemory: true)
 }

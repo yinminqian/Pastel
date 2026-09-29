@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0}
+html,body{width:1600px;height:860px;overflow:hidden}
+body{font-family:Inter,-apple-system,sans-serif;color:#1B1640;
+  background:
+    radial-gradient(900px 600px at 0% 0%,#D3DEFF 0%,transparent 70%),
+    radial-gradient(800px 600px at 100% 100%,#FFE0D6 0%,transparent 70%),
+    radial-gradient(700px 500px at 70% 10%,#F1DDFF 0%,transparent 70%),
+    #F6F1FF;position:relative}
+.copy{position:absolute;left:88px;top:96px;width:560px}
+.brand{display:flex;align-items:center;gap:18px}
+.brand img{width:92px;height:92px}
+.brand h1{font-size:84px;font-weight:800;letter-spacing:-3px}
+h2{margin-top:30px;font-size:40px;line-height:1.14;font-weight:600;letter-spacing:-1.2px;color:#231C4D}
+p{margin-top:20px;font-size:19px;line-height:1.5;color:#5B5579}
+.keys{margin-top:32px;display:flex;align-items:center;gap:8px;font-size:17px;color:#5B5579}
+kbd{font-family:inherit;width:44px;height:44px;display:grid;place-items:center;border-radius:10px;
+  background:#fffc;border:1px solid #1B164022;box-shadow:0 2px 4px #1B164014;font-size:19px;font-weight:600;color:#1B1640}
+.chips{margin-top:40px;display:flex;flex-wrap:wrap;gap:10px}
+.chip{padding:8px 14px;border-radius:99px;background:#ffffffa8;border:1px solid #1B164014;font-size:14.5px;font-weight:500;color:#3B3563}
+.chip b{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
+.shot{position:absolute;border-radius:16px;overflow:hidden;
+  box-shadow:0 30px 60px -12px #2A1F6045,0 0 0 1px #1B164012}
+.shot img{display:block;width:100%}
+.s1{width:560px;left:900px;top:60px;transform:rotate(3deg);opacity:.95}
+.s2{width:560px;left:1010px;top:470px;transform:rotate(-2.5deg);opacity:.95}
+.s0{width:860px;left:690px;top:210px}
+.tag{position:absolute;padding:6px 12px;border-radius:99px;background:#1B1640;color:#fff;font-size:13px;font-weight:600;letter-spacing:.2px}
+</style></head><body>
+<div class="copy">
+  <div class="brand"><img src="icon.png"><h1>Pastel</h1></div>
+  <h2>Everything you copied,<br>one keystroke away.</h2>
+  <p>A small, honest clipboard history for macOS 26. Keeps every format you copy, refuses to store secrets, and lives in a strip of Liquid Glass.</p>
+  <div class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd><span>&nbsp;to open, click to paste</span></div>
+  <div class="chips">
+    <span class="chip"><b style="background:#8B5CF6"></b>Rich text stays rich</span>
+    <span class="chip"><b style="background:#22A06B"></b>Secrets never stored</span>
+    <span class="chip"><b style="background:#2F6BFF"></b>Seven panel styles</span>
+    <span class="chip"><b style="background:#F2552C"></b>Local MCP for AI tools</span>
+  </div>
+</div>
+<div class="shot s1"><img src="m1-light-screen.png"></div>
+<div class="shot s2"><img src="n1-light-screen.png"></div>
+<div class="shot s0"><img src="j1-light-screen.png"></div>
+</body></html>

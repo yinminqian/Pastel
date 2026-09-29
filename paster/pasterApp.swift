@@ -25,13 +25,24 @@ struct pasterApp: App {
                          hotKey: delegate.hotKey,
                          mcp: delegate.mcp,
                          onClearHistory: delegate.confirmClearHistory,
-                         onSharingChange: delegate.applyPanelSharingType)
+                         onSharingChange: delegate.applyPanelSharingType,
+                         onTryStyle: delegate.showPanel)
         }
         // Otherwise macOS window restoration reopens Settings at every launch
         // just because it was open once — so summoning the panel appears to
         // drag the Settings window along with it. Settings should arrive only
         // when asked for, from the menu bar item.
         .restorationBehavior(.disabled)
+        // The content states a range, not a size; this is what turns that
+        // range into a window the edges can drag.
+        // The window is the content's size, within the content's own limits,
+        // rather than whatever size it was last left at.
+        .windowResizability(.contentSize)
+        // Restoration was only half of it. At launch SwiftUI also opens the
+        // app's first window scene unasked, and Settings is the only one — so it
+        // opened on every launch, took key from the panel, and the panel, which
+        // hides on losing key, vanished the moment it appeared.
+        .defaultLaunchBehavior(.suppressed)
 
         // A menu bar item alongside the Dock icon, not instead of it. It is
         // where pausing belongs: reaching for it must not require summoning the
@@ -40,7 +51,7 @@ struct pasterApp: App {
         MenuBarExtra("paster", systemImage: delegate.settings.isPaused
                      ? "doc.on.clipboard.fill"
                      : "doc.on.clipboard") {
-            Button(delegate.settings.isPaused ? "Resume Capture" : "Pause Capture") {
+            Button(delegate.settings.isPaused ? String(localized: "Resume Capture") : String(localized: "Pause Capture")) {
                 delegate.settings.isPaused.toggle()
             }
             Divider()
@@ -134,13 +145,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Show once at launch, otherwise a fresh install looks like it did
-        // nothing at all.
-        controller.show()
+        // nothing at all. Not for the test host: the panel takes key, so a
+        // test run would swallow whatever the person was typing elsewhere.
+        if !Self.isHostingTests { controller.show() }
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "ForceDark") {
+            NSApp.appearance = NSAppearance(named: .darkAqua)
+        }
+        if UserDefaults.standard.bool(forKey: "AutoBench") {
+            Task { await controller.runAutoBench() }
+        } else if UserDefaults.standard.bool(forKey: "SelfCheck") {
+            Task { await controller.runSelfCheck() }
+        }
+        #endif
     }
 
     /// - Returns: true when another copy is already running, in which case this
     ///   one has asked it to show its panel and is terminating.
     @MainActor
+    /// Whether this process is the test host rather than a copy a person ran.
+    private static var isHostingTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
+
     private func handOffToRunningCopy() -> Bool {
         // Not when hosting tests. The test bundle is injected into this very
         // app, so the guard would find the user's installed copy, hand over and
@@ -148,9 +176,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // the whole suite with "the test runner exited before establishing
         // connection". The guard exists for a *person* launching a second copy;
         // a test host is not that.
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil,
-              NSClassFromString("XCTestCase") == nil
-        else { return false }
+        guard !Self.isHostingTests else { return false }
 
         guard let identifier = Bundle.main.bundleIdentifier else { return false }
         let mine = ProcessInfo.processInfo.processIdentifier
@@ -199,25 +225,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let clippings = "\(tally.deletable.formatted()) clipping"
-            + (tally.deletable == 1 ? "" : "s")
+        let deleted = String(localized: "\(tally.deletable) clippings will be deleted.")
         let kept = tally.pinned > 0
-            ? ", and \(tally.pinned.formatted()) pinned clipping"
-                + (tally.pinned == 1 ? " kept" : "s kept")
+            ? " " + String(localized: "\(tally.pinned) pinned clippings are kept.")
             : ""
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Clear clipboard history?"
-        alert.informativeText = """
-        \(clippings) will be deleted\(kept). The system clipboard is emptied too, \
-        so nothing is left to paste.
-
-        This cannot be undone.
-        """
-        let clear = alert.addButton(withTitle: "Clear History")
+        alert.messageText = String(localized: "Clear clipboard history?")
+        alert.informativeText = deleted + kept + " "
+            + String(localized: "The system clipboard is emptied too, so nothing is left to paste.")
+            + "\n\n" + String(localized: "This cannot be undone.")
+        let clear = alert.addButton(withTitle: String(localized: "Clear History"))
         clear.hasDestructiveAction = true
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: String(localized: "Cancel"))
         // Escape has to reach Cancel, or a dismissing keypress lands on the
         // destructive button.
         alert.buttons.last?.keyEquivalent = "\u{1b}"
@@ -252,11 +273,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// This is the entry point that cannot fail. The hotkey can be taken by
     /// another app, and without a second way in the app would be a pasteboard
     /// poller with no reachable UI.
+    ///
+    /// Returns `false` because the panel *is* the reopen. `true` asks AppKit to
+    /// carry on with its default, which is to open a window — and the only
+    /// window scene this app has is Settings, so every Dock click dragged the
+    /// Settings window up behind the panel.
     @MainActor
     func applicationShouldHandleReopen(_ sender: NSApplication,
                                        hasVisibleWindows: Bool) -> Bool {
         panelController?.show()
-        return true
+        return false
+    }
+
+    /// Right-clicking the Dock icon is where Settings lives, now that clicking
+    /// it no longer opens them.
+    @MainActor
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        let settings = NSMenuItem(title: String(localized: "Settings…"),
+                                  action: #selector(openSettingsFromDock),
+                                  keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
+        return menu
+    }
+
+    /// Goes through the app menu's own Settings item, the one the `Settings`
+    /// scene installs. `showSettingsWindow:` sent from AppKit no longer opens
+    /// a SwiftUI Settings scene, and `openSettings` needs a view to be read from.
+    @MainActor
+    @objc private func openSettingsFromDock() {
+        NSApp.activate()
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu,
+              let index = appMenu.items.firstIndex(where: {
+                  $0.keyEquivalent == "," && $0.keyEquivalentModifierMask == .command
+              })
+        else { return }
+        appMenu.performActionForItem(at: index)
     }
 
     // MARK: - Store
@@ -277,6 +330,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func makeContainer() -> ModelContainer? {
+        #if DEBUG
+        if let rows = StressStore.requestedRows {
+            return StressStore.make(rows: rows, schema: Self.schema)
+        }
+        #endif
         do {
             return try ModelContainer(for: Self.schema)
         } catch {
@@ -294,14 +352,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func recoverFromStoreFailure(_ error: Error) -> ModelContainer? {
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "Could not open the clipboard store"
+        alert.messageText = String(localized: "Could not open the clipboard store")
         alert.informativeText = """
         \(error.localizedDescription)
 
         \(Self.storeURL.path)
         """
-        alert.addButton(withTitle: "Quit")
-        alert.addButton(withTitle: "Move Store Aside and Retry")
+        alert.addButton(withTitle: String(localized: "Quit"))
+        alert.addButton(withTitle: String(localized: "Move Store Aside and Retry"))
 
         guard alert.runModal() == .alertSecondButtonReturn else {
             NSApp.terminate(nil)
@@ -323,7 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             let failure = NSAlert()
             failure.alertStyle = .critical
-            failure.messageText = "Still could not open a clipboard store"
+            failure.messageText = String(localized: "Still could not open a clipboard store")
             failure.informativeText = error.localizedDescription
             failure.runModal()
             NSApp.terminate(nil)

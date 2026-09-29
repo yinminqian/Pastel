@@ -65,7 +65,7 @@ final class MCPServer {
         stop()
 
         guard let endpointPort = NWEndpoint.Port(rawValue: requested) else {
-            state = .failed("Port \(requested) is not usable.")
+            state = .failed(String(localized: "Port \(requested) is not usable."))
             return
         }
 
@@ -152,8 +152,10 @@ final class MCPServer {
     /// than being guessed at.
     private static func describe(_ error: NWError, port: UInt16?) -> String {
         guard case .posix(.EADDRINUSE) = error else { return error.localizedDescription }
-        let which = port.map { "Port \($0)" } ?? "That port"
-        return "\(which) is already used by another program. Pick a different one."
+        if let port {
+            return String(localized: "Port \(port) is already used by another program. Pick a different one.")
+        }
+        return String(localized: "That port is already used by another program. Pick a different one.")
     }
 
     private func handle(_ listenerState: NWListener.State) {

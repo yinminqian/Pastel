@@ -10,10 +10,10 @@ import SwiftUI
 
 /// The colour a person would name if you pointed at an app's icon.
 ///
-/// Derived at display time rather than stored. Paste keeps an icon blob and an
-/// accent per app in its database, but it has to: it syncs, and a device that
-/// never installed the app cannot look either up. Nothing here syncs, so
-/// deriving costs no storage and stays correct when an app ships a new icon.
+/// Derived at display time rather than stored. An app that syncs would have
+/// to store an icon and an accent per app, since a device that never installed
+/// the app cannot look either up. Nothing here syncs, so deriving costs no
+/// storage and stays correct when an app ships a new icon.
 @MainActor
 enum AppAccent {
     private static var cache: [String: Color?] = [:]
@@ -31,16 +31,60 @@ enum AppAccent {
     private static var iconCache: [String: NSImage?] = [:]
     private static var nameCache: [String: String?] = [:]
 
-    /// - Returns: `nil` when the icon has no chromatic hue worth using — plenty
-    ///   of icons are deliberately monochrome, and inventing a colour for them
-    ///   would be worse than leaving the card neutral.
+    /// The icon's hue, snapped to the nearest colour in `palette`; or, for the
+    /// many deliberately monochrome icons, a palette colour picked by the
+    /// bundle ID, so each such app still keeps one colour of its own.
+    ///
+    /// Snapped rather than used raw, because raw icon hues are what made the
+    /// row look muddy: a navy, an olive and a dusty rose side by side read as
+    /// accidents. A small set of clean colours reads as designed.
+    ///
+    /// - Returns: `nil` only when there is no bundle ID at all.
     static func color(forBundleID bundleID: String?) -> Color? {
         guard let bundleID else { return nil }
         if let cached = cache[bundleID] { return cached }
 
-        let derived = icon(for: bundleID).flatMap(accent(for:)).map(Color.init)
+        let index = icon(for: bundleID).flatMap(dominantHue(of:)).map(nearestSwatch(toHue:))
+            ?? stableIndex(of: bundleID, count: swatches.count)
+        let derived = palette[index]
         cache[bundleID] = derived
         return derived
+    }
+
+    /// Bright, clean colours, each able to carry white text. In hue order.
+    private static let swatches: [(red: Double, green: Double, blue: Double)] = [
+        (0.94, 0.27, 0.27),  // red
+        (0.97, 0.53, 0.16),  // orange
+        (0.96, 0.71, 0.13),  // yellow
+        (0.27, 0.74, 0.33),  // green
+        (0.10, 0.68, 0.66),  // teal
+        (0.20, 0.52, 0.97),  // blue
+        (0.35, 0.36, 0.93),  // indigo
+        (0.63, 0.38, 0.93),  // purple
+        (0.94, 0.33, 0.56),  // pink
+    ]
+
+    static let palette: [Color] = swatches.map { Color(red: $0.red, green: $0.green, blue: $0.blue) }
+
+    private static let swatchHues: [CGFloat] = swatches.map {
+        NSColor(srgbRed: $0.red, green: $0.green, blue: $0.blue, alpha: 1).hueComponent
+    }
+
+    /// Hue is a circle, so red at 0.98 is next to red at 0.0.
+    private static func nearestSwatch(toHue hue: CGFloat) -> Int {
+        func distance(_ a: CGFloat, _ b: CGFloat) -> CGFloat {
+            let d = abs(a - b)
+            return min(d, 1 - d)
+        }
+        return swatchHues.indices.min { distance(swatchHues[$0], hue) < distance(swatchHues[$1], hue) } ?? 0
+    }
+
+    /// Not `hashValue`, which is seeded per launch: the same app has to get the
+    /// same colour every time the panel opens.
+    private static func stableIndex(of string: String, count: Int) -> Int {
+        var hash: UInt64 = 5381
+        for byte in string.utf8 { hash = hash &* 33 &+ UInt64(byte) }
+        return Int(hash % UInt64(count))
     }
 
     /// The app's user-visible name, for anything that has to be *spoken* rather
@@ -81,7 +125,7 @@ enum AppAccent {
     /// as a colour and every cluster comes out a shade of grey, silently. A
     /// 32×32 render is 1024 samples, which is ample for picking a hue, and
     /// every step of this is inspectable.
-    private static func accent(for icon: NSImage) -> NSColor? {
+    private static func dominantHue(of icon: NSImage) -> CGFloat? {
         let side = 32
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
                                            pixelsWide: side, pixelsHigh: side,
@@ -98,8 +142,6 @@ enum AppAccent {
 
         let buckets = 24
         var weight = [CGFloat](repeating: 0, count: buckets)
-        var sumSaturation = [CGFloat](repeating: 0, count: buckets)
-        var sumBrightness = [CGFloat](repeating: 0, count: buckets)
 
         for y in 0 ..< side {
             for x in 0 ..< side {
@@ -110,15 +152,15 @@ enum AppAccent {
                 let saturation = pixel.saturationComponent
                 let brightness = pixel.brightnessComponent
                 // Skips the greys, the near-whites and the near-blacks that
-                // every icon is largely made of.
-                guard saturation > 0.25, brightness > 0.20, brightness < 0.98 else { continue }
+                // every icon is largely made of. The floor is low enough to
+                // keep dark but clearly coloured backgrounds, like Ghostty's
+                // navy, which the clamp below then brightens.
+                guard saturation > 0.25, brightness > 0.12, brightness < 0.98 else { continue }
 
                 let bucket = min(buckets - 1, Int(pixel.hueComponent * CGFloat(buckets)))
                 // Weighted by saturation, so a vivid pixel counts for more than
                 // a washed-out one in the same hue family.
                 weight[bucket] += saturation
-                sumSaturation[bucket] += saturation * saturation
-                sumBrightness[bucket] += brightness * saturation
             }
         }
 
@@ -126,12 +168,6 @@ enum AppAccent {
               weight[top] > 0
         else { return nil }
 
-        let total = weight[top]
-        // Clamped so a neon icon cannot produce a colour that is unusable as a
-        // UI accent behind text.
-        return NSColor(hue: (CGFloat(top) + 0.5) / CGFloat(buckets),
-                       saturation: min(0.85, max(0.35, sumSaturation[top] / total)),
-                       brightness: min(0.92, max(0.45, sumBrightness[top] / total)),
-                       alpha: 1)
+        return (CGFloat(top) + 0.5) / CGFloat(buckets)
     }
 }

@@ -17,13 +17,20 @@ import Foundation
 
 // MARK: - Design
 
-/// Restrained indigo rather than an electric blue. System icons sit closer to
-/// this; a fully saturated primary reads as a placeholder.
-let tileTop = NSColor(srgbRed: 0.361, green: 0.416, blue: 0.706, alpha: 1)
-let tileBottom = NSColor(srgbRed: 0.239, green: 0.290, blue: 0.564, alpha: 1)
-/// Warm, so the card reads as paper against a cool tile.
-let cardFill = NSColor(srgbRed: 0.980, green: 0.973, blue: 0.953, alpha: 1)
-let barColor = NSColor(srgbRed: 0.239, green: 0.290, blue: 0.564, alpha: 1)
+/// Deep indigo into violet. Dark enough that the cards' colours carry the
+/// icon, rich enough that it is not a black hole in the Dock.
+let tileTop = NSColor(srgbRed: 0.310, green: 0.290, blue: 0.820, alpha: 1)
+let tileBottom = NSColor(srgbRed: 0.130, green: 0.120, blue: 0.420, alpha: 1)
+/// Warm, so the cards read as paper against a cool tile.
+let cardFill = NSColor(srgbRed: 0.992, green: 0.988, blue: 0.976, alpha: 1)
+let barColor = NSColor(srgbRed: 0.780, green: 0.790, blue: 0.830, alpha: 1)
+
+/// The panel's own card colours, back to front — the icon is the row.
+let bandColors = [
+    NSColor(srgbRed: 0.97, green: 0.53, blue: 0.16, alpha: 1),  // orange
+    NSColor(srgbRed: 0.27, green: 0.74, blue: 0.33, alpha: 1),  // green
+    NSColor(srgbRed: 0.20, green: 0.52, blue: 0.97, alpha: 1),  // blue
+]
 
 /// A continuous-curvature squircle, which is the shape macOS actually uses —
 /// a plain rounded rectangle reads subtly wrong next to system icons.
@@ -76,45 +83,76 @@ func draw(size: Int) -> Data? {
 
     // Tile, edge to edge. No inset and no outer shadow: macOS masks the icon
     // and draws its own shadow, and baking one in double-shadows it.
-    let tile = squircle(in: CGRect(x: 0, y: 0, width: s, height: s), radiusRatio: 0.224)
+    let full = CGRect(x: 0, y: 0, width: s, height: s)
+    let tile = squircle(in: full, radiusRatio: 0.224)
     tile.setClip()
-    NSGradient(starting: tileBottom, ending: tileTop)?
-        .draw(in: CGRect(x: 0, y: 0, width: s, height: s), angle: 90)
+    NSGradient(starting: tileBottom, ending: tileTop)?.draw(in: full, angle: 90)
 
-    // The glyph: two offset cards.
-    //
-    // The FRONT card is centred, not the pair's bounding box. Centring the box
-    // puts the bright card down and to the right of centre, because all the
-    // visual weight is in it — the eye reads the composition as off-balance
-    // even though the geometry is symmetrical. The back card's sliver hangs up
-    // and to the left, where it costs nothing.
-    let cardW = s * 0.560
-    let cardH = s * 0.408
-    let step = s * 0.052
-    let cardRadius: CGFloat = 0.10
+    // The glyph: three cards fanned from a point below the tile, each with
+    // the coloured band the panel's cards carry. Back to front: orange, green,
+    // blue. The front card is upright-ish and centred; the fan opens up and to
+    // the left, where the back cards' bands stay visible.
+    let cardW = s * 0.50
+    let cardH = s * 0.54
+    let bandH = cardH * 0.25
+    let radius: CGFloat = 0.13
+    let fans: [(angle: CGFloat, dx: CGFloat, dy: CGFloat)] = [
+        (16, -0.085, 0.030),
+        (6, -0.035, 0.012),
+        (-5, 0.035, -0.012),
+    ]
+    let small = size <= 32
 
-    let front = CGRect(x: (s - cardW) / 2, y: (s - cardH) / 2, width: cardW, height: cardH)
-    let back = front.offsetBy(dx: -step, dy: step)
+    for (index, fan) in fans.enumerated() {
+        NSGraphicsContext.saveGraphicsState()
+        let center = CGPoint(x: s / 2 + s * fan.dx, y: s / 2 + s * fan.dy - s * 0.01)
+        let transform = NSAffineTransform()
+        transform.translateX(by: center.x, yBy: center.y)
+        transform.rotate(byDegrees: fan.angle)
+        transform.concat()
 
-    // Drawn first so the front card overlaps it. The sliver has to survive
-    // 16pt, where the offset is only a pixel or two.
-    NSColor.white.withAlphaComponent(0.42).setFill()
-    squircle(in: back, radiusRatio: cardRadius).fill()
+        let card = CGRect(x: -cardW / 2, y: -cardH / 2, width: cardW, height: cardH)
+        let shape = squircle(in: card, radiusRatio: radius)
 
-    cardFill.setFill()
-    squircle(in: front, radiusRatio: cardRadius).fill()
+        // A soft contact shadow between layers, inside the tile. Not an outer
+        // icon shadow — the system draws that.
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.32)
+        shadow.shadowBlurRadius = s * 0.035
+        shadow.shadowOffset = NSSize(width: 0, height: -s * 0.012)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        cardFill.setFill()
+        shape.fill()
+        NSGraphicsContext.restoreGraphicsState()
 
-    // Two chunky bars. Two, not three: at 16pt a third becomes noise.
-    let barH = cardH * 0.150
-    let barX = front.minX + cardW * 0.130
-    let gap = cardH * 0.150
-    let totalBars = barH * 2 + gap
-    let barsTop = front.midY + totalBars / 2
-    barColor.setFill()
-    for (index, widthRatio) in [0.740, 0.480].enumerated() {
-        let y = barsTop - barH - CGFloat(index) * (barH + gap)
-        let bar = CGRect(x: barX, y: y, width: cardW * widthRatio, height: barH)
-        squircle(in: bar, radiusRatio: 0.42).fill()
+        // The band, clipped to the card so it takes the card's top corners.
+        NSGraphicsContext.saveGraphicsState()
+        shape.setClip()
+        bandColors[index].setFill()
+        CGRect(x: card.minX, y: card.maxY - bandH, width: cardW, height: bandH).fill()
+        NSGraphicsContext.restoreGraphicsState()
+
+        // Only the front card has content, and only where it survives the
+        // size: at 16 and 32 px the bars are noise.
+        if index == fans.count - 1 && !small {
+            barColor.setFill()
+            let barH = cardH * 0.075
+            let x = card.minX + cardW * 0.14
+            var y = card.maxY - bandH - cardH * 0.17
+            for widthRatio in [0.70, 0.52, 0.62] {
+                squircle(in: CGRect(x: x, y: y, width: cardW * widthRatio, height: barH),
+                         radiusRatio: 0.5).fill()
+                y -= barH + cardH * 0.085
+            }
+            // A white dot on the band: the source-app icon the real cards carry.
+            NSColor.white.withAlphaComponent(0.92).setFill()
+            let dot = cardH * 0.13
+            NSBezierPath(ovalIn: CGRect(x: card.maxX - cardW * 0.13 - dot,
+                                        y: card.maxY - bandH / 2 - dot / 2,
+                                        width: dot, height: dot)).fill()
+        }
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     NSGraphicsContext.restoreGraphicsState()

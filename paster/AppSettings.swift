@@ -23,6 +23,12 @@ final class AppSettings {
         didSet { defaults.set(isPaused, forKey: Key.isPaused) }
     }
 
+    /// How the panel looks. Read when the panel opens, so a change shows the
+    /// next time it does rather than rearranging a panel already on screen.
+    var panelStyle: PanelStyle {
+        didSet { defaults.set(panelStyle.rawValue, forKey: Key.panelStyle) }
+    }
+
     /// Newest N clippings are kept.
     var historyLimit: Int {
         didSet { defaults.set(historyLimit, forKey: Key.historyLimit) }
@@ -65,12 +71,11 @@ final class AppSettings {
     /// benefit: `NSWindow.SharingType.none` blocks *screenshots* too, so nobody
     /// — not the author, not anyone filing a bug — can produce a picture of the
     /// panel. It cost two round trips of "here is a screenshot" / "that
-    /// screenshot contains no panel" before the penny dropped. Paste, the app
-    /// this one is measured against, does not exclude itself either.
+    /// screenshot contains no panel" before the penny dropped.
     ///
-    /// So it becomes a choice, and the default matches the reference app. The
-    /// panel is only on screen while deliberately summoned, which is the narrow
-    /// window this was protecting.
+    /// So it becomes a choice, and the default is off. The panel is only on
+    /// screen while deliberately summoned, which is the narrow window this was
+    /// protecting.
     var hidesFromScreenCapture: Bool {
         didSet { defaults.set(hidesFromScreenCapture, forKey: Key.hidesFromScreenCapture) }
     }
@@ -108,6 +113,7 @@ final class AppSettings {
 
     private enum Key {
         static let isPaused = "is-paused"
+        static let panelStyle = "panel-style"
         static let historyLimit = "history-limit"
         static let retentionDays = "retention-days"
         static let excludedApps = "user-excluded-apps"
@@ -131,6 +137,8 @@ final class AppSettings {
             Key.mcpPort: 4257,
         ])
         self.isPaused = defaults.bool(forKey: Key.isPaused)
+        self.panelStyle = defaults.string(forKey: Key.panelStyle)
+            .flatMap(PanelStyle.init(rawValue:)) ?? .basic
         self.historyLimit = defaults.integer(forKey: Key.historyLimit)
         self.retentionDays = defaults.integer(forKey: Key.retentionDays)
         self.excludedApps = defaults.stringArray(forKey: Key.excludedApps) ?? []

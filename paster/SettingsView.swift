@@ -20,6 +20,7 @@ struct SettingsView: View {
     var mcp: MCPService?
     var onClearHistory: () -> Void = {}
     var onSharingChange: () -> Void = {}
+    var onTryStyle: () -> Void = {}
 
     var body: some View {
         TabView {
@@ -28,6 +29,10 @@ struct SettingsView: View {
                             launchAtLogin: launchAtLogin,
                             onClearHistory: onClearHistory)
                 .tabItem { Label("General", systemImage: "gearshape") }
+
+            StyleSettings(settings: settings, onTry: onTryStyle)
+                .frame(height: 440)
+                .tabItem { Label("Style", systemImage: "paintbrush") }
 
             ShortcutSettings(permissions: permissions, hotKey: hotKey)
                 .tabItem { Label("Shortcut", systemImage: "command") }
@@ -38,11 +43,17 @@ struct SettingsView: View {
             MCPSettings(settings: settings, mcp: mcp)
                 .tabItem { Label("MCP", systemImage: "sparkles") }
         }
-        // Width fixed, height left to each pane. A single height for all four
-        // would either clip the MCP pane or leave the Startup pane mostly
-        // empty; macOS resizes a preferences window between tabs, and matching
-        // that is what keeps this from reading as a ported dialog.
-        .frame(width: 520)
+        // Resizable, in both directions, on request. Apple's settings guidance
+        // leaves a settings window at its pane's size ("people don't need to
+        // expand the window to see more"), but the panes are grouped `Form`s,
+        // which scroll, so a taller window simply shows more of them at once.
+        // The minimum is what the widest row needs; the ideal is the size it
+        // opens at.
+        // Capped as well: the window restores whatever size it last had, and
+        // a settings window spread across half the screen reads as oversized.
+        // Width only: each pane states its own height, and the window takes
+        // it as the tab changes, the way a Mac settings window does.
+        .frame(minWidth: 540, idealWidth: 620, maxWidth: 720)
     }
 }
 
@@ -69,8 +80,8 @@ private struct ShortcutSettings: View {
                         }
                     }
                     Text(hotKey.isRecording
-                         ? "Hold at least one modifier, then press a key. Escape cancels."
-                         : "Click the field, then press the combination you want.")
+                         ? String(localized: "Hold at least one modifier, then press a key. Escape cancels.")
+                         : String(localized: "Click the field, then press the combination you want."))
                         .font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Still starting up.").foregroundStyle(.secondary)
@@ -103,6 +114,8 @@ private struct ShortcutSettings: View {
             }
         }
         .formStyle(.grouped)
+        // A short pane starts at the top instead of floating mid-window.
+        .defaultScrollAnchor(.top)
         .frame(height: 200)
     }
 }
@@ -120,6 +133,8 @@ private struct GeneralSettings: View {
             // Titled, not a bare leading Section: an untitled group renders its
             // own edge directly under the tab bar's divider, which reads as a
             // second rule with an empty band between them.
+            LanguageSection()
+
             Section("Startup") {
                 Toggle("Launch at login", isOn: Binding(
                     get: { launchAtLogin.isEnabled },
@@ -166,6 +181,9 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        // A short pane starts at the top instead of floating mid-window.
+        .defaultScrollAnchor(.top)
+        .frame(height: 520)
     }
 }
 
@@ -175,6 +193,7 @@ private struct PrivacySettings: View {
     var settings: AppSettings
     var onSharingChange: () -> Void
     @State private var selection: String?
+    @FocusState private var listFocused: Bool
 
     var body: some View {
         Form {
@@ -212,6 +231,7 @@ private struct PrivacySettings: View {
                         }
                     }
                     .frame(height: 90)
+                    .focused($listFocused)
                 }
 
                 HStack {
@@ -225,6 +245,11 @@ private struct PrivacySettings: View {
             }
         }
         .formStyle(.grouped)
+        // A short pane starts at the top instead of floating mid-window.
+        // The app list below takes focus when the pane opens, and the form
+        // scrolled down to it, hiding the first heading under the toolbar.
+        .defaultScrollAnchor(.top)
+        .defaultFocus($listFocused, false)
         .frame(height: 480)
     }
 
@@ -306,12 +331,12 @@ private struct MCPSettings: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                                 .textSelection(.enabled)
-                            Button(revealToken ? "Hide" : "Reveal") { revealToken.toggle() }
+                            Button(revealToken ? String(localized: "Hide") : String(localized: "Reveal")) { revealToken.toggle() }
                                 .controlSize(.small)
                         }
                     }
                     HStack {
-                        Button(copied ? "Copied" : "Copy Setup Command") { copyCommand() }
+                        Button(copied ? String(localized: "Copied") : String(localized: "Copy Setup Command")) { copyCommand() }
                             .disabled(mcp == nil)
                         Button("Regenerate") {
                             mcp?.regenerateToken()
@@ -336,6 +361,8 @@ private struct MCPSettings: View {
             }
         }
         .formStyle(.grouped)
+        // A short pane starts at the top instead of floating mid-window.
+        .defaultScrollAnchor(.top)
         // Two heights, because switching the endpoint on reveals three more
         // sections. A single height sized for the long form leaves the switch
         // floating in an empty window, which reads as a pane that failed to
@@ -379,5 +406,69 @@ private struct MCPSettings: View {
         // and stored as a searchable plain-text copy of the credential.
         mcp.copySetupCommand()
         copied = true
+    }
+}
+
+// MARK: - Language
+
+/// The app's own language, which can differ from the system's.
+///
+/// Stored the way macOS stores a per-app language — `AppleLanguages` in the
+/// app's defaults, the same key System Settings › Language & Region › Apps
+/// writes — so the two stay in step. It is read at launch, hence the restart.
+private struct LanguageSection: View {
+    /// An empty string follows the system.
+    @State private var chosen = LanguageSection.current
+    private let atLaunch = LanguageSection.current
+
+    private static let options: [(code: String, name: String)] = [
+        ("en", "English"), ("zh-Hans", "简体中文"), ("ja", "日本語"), ("ko", "한국어"),
+    ]
+
+    private static var current: String {
+        let domain = Bundle.main.bundleIdentifier.flatMap { UserDefaults.standard.persistentDomain(forName: $0) }
+        return (domain?["AppleLanguages"] as? [String])?.first ?? ""
+    }
+
+    var body: some View {
+        Section("Language") {
+            Picker("Language", selection: $chosen) {
+                Text("Same as System").tag("")
+                Divider()
+                // Each in its own language, so it can be found by someone who
+                // cannot read the current one.
+                ForEach(Self.options, id: \.code) { option in
+                    Text(verbatim: option.name).tag(option.code)
+                }
+            }
+            .onChange(of: chosen) { _, code in
+                if code.isEmpty {
+                    UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+                } else {
+                    UserDefaults.standard.set([code], forKey: "AppleLanguages")
+                }
+            }
+            if chosen != atLaunch {
+                LabeledContent {
+                    Button("Restart Now", action: Self.relaunch)
+                        .buttonStyle(.glassProminent)
+                        .tint(PanelPalette.accent)
+                } label: {
+                    Text("paster needs to restart to change language.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Quits and opens again. A second copy started while this one is still
+    /// running would hand over to it and quit, so the reopen waits a moment.
+    private static func relaunch() {
+        let path = Bundle.main.bundleURL.path
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", "sleep 0.8; /usr/bin/open \"$0\"", path]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 }

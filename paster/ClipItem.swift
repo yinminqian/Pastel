@@ -7,6 +7,7 @@
 
 import Foundation
 import SwiftData
+import UniformTypeIdentifiers
 
 /// What a clipping mainly is, chosen from the representations it carries.
 /// Used for card layout, so it is stored rather than computed — computed
@@ -168,13 +169,30 @@ final class ClipItem {
     /// is already carrying the app icon as its one piece of imagery.
     var kindLabel: String {
         switch kind {
-        case .text: "Text"
-        case .richText: "Rich Text"
-        case .image: "Image"
-        case .fileURL: "File"
-        case .link: "Link"
-        case .other: "Data"
+        case .text: String(localized: "Text")
+        case .richText: String(localized: "Rich Text")
+        case .image: String(localized: "Image")
+        case .fileURL: isImageFile ? String(localized: "Image") : String(localized: "File")
+        case .link: String(localized: "Link")
+        case .other: String(localized: "Data")
         }
+    }
+
+    /// The copied file, when this clipping is one.
+    var fileURL: URL? {
+        guard kind == .fileURL, let text = previewText,
+              let url = URL(string: text), url.isFileURL
+        else { return nil }
+        return url
+    }
+
+    /// A copied file that is a picture — what a screenshot tool puts on the
+    /// clipboard. Labelled an image, since that is what the user copied.
+    var isImageFile: Bool {
+        guard let url = fileURL,
+              let type = UTType(filenameExtension: url.pathExtension)
+        else { return false }
+        return type.conforms(to: .image)
     }
 
     /// A concrete datum for the card's footer.
@@ -186,7 +204,7 @@ final class ClipItem {
         guard contentLength > 0 else { return nil }
         switch kind {
         case .text, .richText, .link:
-            return "\(contentLength.formatted()) characters"
+            return String(localized: "\(contentLength) characters")
         case .image, .fileURL, .other:
             return contentLength.formatted(.byteCount(style: .file))
         }

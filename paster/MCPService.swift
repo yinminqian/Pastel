@@ -69,7 +69,7 @@ final class MCPService {
             // endpoint is not a thing to start on the user's behalf.
             server?.stop()
             server = nil
-            state = .failed("No access token. Generate one to start the server.")
+            state = .failed(String(localized: "No access token. Generate one to start the server."))
             return
         }
 

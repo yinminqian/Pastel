@@ -69,7 +69,7 @@ struct Shortcut: Codable, Equatable, Sendable {
     static func keyName(for keyCode: UInt32) -> String {
         if let special = specialKeyNames[Int(keyCode)] { return special }
         if let translated = layoutCharacter(for: keyCode) { return translated }
-        return "Key \(keyCode)"
+        return String(localized: "Key \(keyCode)")
     }
 
     /// Asks the active keyboard layout what the key produces, unmodified.
@@ -219,7 +219,7 @@ struct ShortcutRecorder: NSViewRepresentable {
             shape.lineWidth = isRecording ? 2 : 1
             shape.stroke()
 
-            let text = isRecording ? "Press keys…" : shortcut.displayString
+            let text = isRecording ? String(localized: "Press keys…") : shortcut.displayString
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 13),
                 .foregroundColor: isRecording ? NSColor.secondaryLabelColor

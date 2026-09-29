@@ -1,9 +1,12 @@
-# paster
+# Pastel
+
+![Pastel — everything you copied, one keystroke away](design/pastel-hero.png)
 
 A clipboard history manager for macOS 26, in Swift 6 and SwiftUI.
 
-Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd> and a glass panel shows what you have
-copied. Click a card to paste it back where you were working.
+Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>V</kbd> and a strip slides up from the bottom
+of the screen with what you have copied, one card per clipping, newest on the
+left. Click a card to paste it back where you were working.
 
 ## Why another one
 
