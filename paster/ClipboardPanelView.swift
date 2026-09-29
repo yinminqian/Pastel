@@ -66,8 +66,11 @@ enum PanelMetrics {
     /// Drawn outside the card, so selecting one never shifts its content.
     static let selectionRingWidth: CGFloat = 3
     /// The card's shadow, which lifts it off the glass in place of a stroke.
-    static let cardShadowRadius: CGFloat = 2
-    static let cardShadowY: CGFloat = 1
+    /// Even on every side rather than cast downwards: a halo reads as the
+    /// card floating, an offset one as a line under it.
+    static let cardShadowRadius: CGFloat = 4
+    static let cardShadowY: CGFloat = 0
+    static let cardShadowOpacity: Double = 0.1
     /// From the header's bottom edge to the cards' top.
     static let cardTopGap: CGFloat = 6
 
@@ -83,12 +86,12 @@ enum PanelMetrics {
             ? .easeOut(duration: 0.12)
             // Critically damped: it arrives and stops, with no bounce to watch
             // on something summoned dozens of times a day.
-            : .spring(duration: 0.2, bounce: 0)
+            : .spring(duration: 0.14, bounce: 0)
     }
 
     /// Leaving is faster than arriving; there is nothing to read on the way out.
     static var dismissAnimation: Animation {
-        reduceMotion ? .easeOut(duration: 0.1) : .easeIn(duration: 0.18)
+        reduceMotion ? .easeOut(duration: 0.1) : .easeIn(duration: 0.12)
     }
 }
 
@@ -137,16 +140,16 @@ final class PanelPresentation {
 /// shadow under a strip docked on the screen's edge only reads as a heavy grey
 /// halo over whatever is behind it.
 ///
-/// Tinted with the window background colour, so it reads as bright, milky
-/// glass rather than taking on the grey of a dark terminal behind it. The
-/// colour adapts, so in Dark Mode the tint is dark.
+/// Untinted, so it takes on some of what is behind it. A tint of the window
+/// background colour made it milky and opaque — as white as the cards, which
+/// then had nothing to stand out against, whatever their shadow.
 ///
 /// Nothing on the header is glass: glass controls on a glass backdrop have
 /// nothing to refract but more glass, and came out as flat white discs.
 private struct PanelBackdrop: View {
     var body: some View {
         Color.clear
-            .glassEffect(.regular.tint(Color(nsColor: .windowBackgroundColor).opacity(0.55)),
+            .glassEffect(.regular,
                          in: .rect(cornerRadius: PanelMetrics.cornerRadius, style: .continuous))
     }
 }
@@ -1064,7 +1067,7 @@ private struct ClipCard: View {
         .clipShape(shape)
         // A soft shadow lifts the card off the glass; a stroke read as a drawn
         // edge. The item slot leaves room for it — see `ClipRow.ringRoom`.
-        .shadow(color: .black.opacity(0.1),
+        .shadow(color: .black.opacity(PanelMetrics.cardShadowOpacity),
                 radius: PanelMetrics.cardShadowRadius, y: PanelMetrics.cardShadowY)
         .overlay {
             if isSelected {
