@@ -3,20 +3,18 @@
   <channel>
     <title>paster</title>
     <item>
-      <title>1.0.3</title>
-      <pubDate>Fri, 30 Oct 2026 10:33:11 GMT</pubDate>
-      <sparkle:version>4</sparkle:version>
-      <sparkle:shortVersionString>1.0.3</sparkle:shortVersionString>
+      <title>1.0.4</title>
+      <pubDate>Fri, 30 Oct 2026 10:39:44 GMT</pubDate>
+      <sparkle:version>5</sparkle:version>
+      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
       <description><![CDATA[
 <ul>
-<li><b>Updates itself.</b> The app now checks for a new version every time it starts, and from the menu bar (<b>Check for Updates…</b>). When one is out, a single click downloads it from GitHub, installs it and relaunches.</li>
-<li>Updates are signed; the app only installs a download whose signature matches.</li>
-<li>Includes 1.0.2&#x27;s fix for the app slowing down and using CPU while idle.</li>
+<li>While running, the app now checks for updates every 48 hours, in addition to the check at every launch and <b>Check for Updates…</b> in the menu bar.</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/yinminqian/Pastel/releases/download/v1.0.3/paster.dmg" type="application/octet-stream"
-                 sparkle:edSignature="WVPCW32+BEG6Dok991A/mxU3vePdS9DKG+9WQM1xfkivCWbGw23CoS9b13cPMWbwJuokbpBEn0Gc210DrUObDg==" length="3684838"/>
+      <enclosure url="https://github.com/yinminqian/Pastel/releases/download/v1.0.4/paster.dmg" type="application/octet-stream"
+                 sparkle:edSignature="SydGVWR3yZjz8ATvugAWCTtJyQPFDqreobT/u89k/ejrvcjRJcc/oD8oYnU01zFf8HUCCZ/wIVonrLxr+ty0Dw==" length="3684939"/>
     </item>
   </channel>
 </rss>
