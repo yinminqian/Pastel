@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 import Carbon.HIToolbox
 import Observation
+import Sparkle
 
 @main
 struct pasterApp: App {
@@ -59,6 +60,7 @@ struct pasterApp: App {
             Button("Clear History…") { delegate.confirmClearHistory() }
             Divider()
             SettingsLink { Text("Settings…") }
+            Button("Check for Updates…") { delegate.updater.checkForUpdates(nil) }
             Button("Quit paster") { NSApplication.shared.terminate(nil) }
                 .keyboardShortcut("q")
         }
@@ -87,6 +89,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let permissions = PermissionsService()
     let launchAtLogin = LaunchAtLogin()
     let settings = AppSettings()
+
+    /// Sparkle, reading the appcast committed to the repo; the update itself is
+    /// the DMG attached to the GitHub release. Started in
+    /// `applicationDidFinishLaunching`, after the hand-off check, so a second
+    /// copy that is about to quit never offers an update.
+    let updater = SPUStandardUpdaterController(startingUpdater: false,
+                                               updaterDelegate: nil,
+                                               userDriverDelegate: nil)
 
     /// Broadcast by a second copy that is about to quit, so the copy already
     /// running is the one that answers.
@@ -136,6 +146,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              settings: settings)
         mcp.apply()
         self.mcp = mcp
+
+        // Checked on every launch, quietly: the user hears about it only when
+        // there is an update, and installing it is their click.
+        updater.startUpdater()
+        updater.updater.checkForUpdatesInBackground()
 
         // A second copy asking us to take over.
         DistributedNotificationCenter.default().addObserver(

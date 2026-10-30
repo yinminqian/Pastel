@@ -96,6 +96,25 @@ Without notarization the DMG runs fine on the machine that built it and is
 refused by Gatekeeper anywhere it is downloaded until the quarantine flag is
 cleared, as above.
 
+### Updates
+
+From 1.0.3 the app checks for updates on every launch (and from the menu bar,
+**Check for Updates…**) using [Sparkle](https://sparkle-project.org). It reads
+`appcast.xml` from this repo and installs the DMG attached to the GitHub
+release in one click; the quarantine flag only has to be cleared for the first
+install. Copies older than 1.0.3 have no updater and need one manual install.
+
+To publish a release, raise `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`,
+push to `main`, then:
+
+```sh
+PUBLISH=1 NOTES=notes.md ./scripts/release.sh
+```
+
+The DMG is signed with the EdDSA key in your Keychain (`generate_keys --account
+paster`); keep a backup of it, since without it no installed copy will accept
+another update.
+
 ### Permissions
 
 The app asks for nothing at launch and works without either of these — it just

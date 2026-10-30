@@ -15,5 +15,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/yinminqian/Pastel/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>ZwP5poz2VbOhWXgxJal1fRmKIHlrlVB2FKyLHlJm+ds=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
 </dict>
 </plist>

@@ -67,6 +67,18 @@ cd Pastel
 
 如果你有 Developer ID Application 证书，`scripts/release.sh` 会**自动**完成公证；没有的话会提示跳过。Apple Development 证书（也就是 Xcode 帮你装的那个）无法用于公证。没有公证的 DMG 在构建它的那台机器上可以正常运行，下载到其他机器上则会被 Gatekeeper 拒绝，直到像上面那样清除隔离标记。
 
+### 自动更新
+
+从 1.0.3 起，App 每次启动都会检查更新（菜单栏里也有「检查更新…」），用的是 [Sparkle](https://sparkle-project.org)：读取本仓库的 `appcast.xml`，一键下载并安装 GitHub Release 上的 DMG。只有第一次安装需要清除隔离标记。1.0.3 之前的版本没有更新功能，需要手动装一次。
+
+发布新版本：先提高 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION` 并推送到 `main`，然后运行：
+
+```sh
+PUBLISH=1 NOTES=notes.md ./scripts/release.sh
+```
+
+DMG 用钥匙串里的 EdDSA 私钥签名（`generate_keys --account paster` 生成）。请备份这把私钥：丢了它，已安装的 App 将不再接受任何更新。
+
 ### 权限
 
 App 启动时什么权限都不要，缺了下面任何一项也能用——只是能做的少一些。
