@@ -3,18 +3,18 @@
   <channel>
     <title>paster</title>
     <item>
-      <title>1.0.4</title>
-      <pubDate>Fri, 30 Oct 2026 10:39:44 GMT</pubDate>
-      <sparkle:version>5</sparkle:version>
-      <sparkle:shortVersionString>1.0.4</sparkle:shortVersionString>
+      <title>1.0.5</title>
+      <pubDate>Fri, 30 Oct 2026 10:48:05 GMT</pubDate>
+      <sparkle:version>6</sparkle:version>
+      <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
       <description><![CDATA[
 <ul>
-<li>While running, the app now checks for updates every 48 hours, in addition to the check at every launch and <b>Check for Updates…</b> in the menu bar.</li>
+<li><b>Check for Updates…</b> is now also in <b>Settings › General</b> (next to the version you are running) and in the Dock icon&#x27;s menu, as well as the menu bar.</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/yinminqian/Pastel/releases/download/v1.0.4/paster.dmg" type="application/octet-stream"
-                 sparkle:edSignature="SydGVWR3yZjz8ATvugAWCTtJyQPFDqreobT/u89k/ejrvcjRJcc/oD8oYnU01zFf8HUCCZ/wIVonrLxr+ty0Dw==" length="3684939"/>
+      <enclosure url="https://github.com/yinminqian/Pastel/releases/download/v1.0.5/paster.dmg" type="application/octet-stream"
+                 sparkle:edSignature="uROSI+XByIDxsmNKvqU31vhrNCdfi+tj9d3b6Wao3LAloXYR8hhx7YU9dpGhrd6UOtal3H/XEOmoOyV+HCFNBQ==" length="3688231"/>
     </item>
   </channel>
 </rss>
