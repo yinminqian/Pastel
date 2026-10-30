@@ -19,6 +19,7 @@ struct SettingsView: View {
     var hotKey: HotKeyBinding?
     var mcp: MCPService?
     var onClearHistory: () -> Void = {}
+    var onCheckForUpdates: () -> Void = {}
     var onSharingChange: () -> Void = {}
     var onTryStyle: () -> Void = {}
 
@@ -27,7 +28,8 @@ struct SettingsView: View {
             GeneralSettings(settings: settings,
                             permissions: permissions,
                             launchAtLogin: launchAtLogin,
-                            onClearHistory: onClearHistory)
+                            onClearHistory: onClearHistory,
+                            onCheckForUpdates: onCheckForUpdates)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
             StyleSettings(settings: settings, onTry: onTryStyle)
@@ -127,6 +129,11 @@ private struct GeneralSettings: View {
     var permissions: PermissionsService
     var launchAtLogin: LaunchAtLogin
     var onClearHistory: () -> Void
+    var onCheckForUpdates: () -> Void
+
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+    }
 
     var body: some View {
         Form {
@@ -142,6 +149,12 @@ private struct GeneralSettings: View {
                 ))
                 if let error = launchAtLogin.lastError {
                     Text(error).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Updates") {
+                LabeledContent("Version \(version)") {
+                    Button("Check for Updates…", action: onCheckForUpdates)
                 }
             }
 
@@ -183,7 +196,7 @@ private struct GeneralSettings: View {
         .formStyle(.grouped)
         // A short pane starts at the top instead of floating mid-window.
         .defaultScrollAnchor(.top)
-        .frame(height: 520)
+        .frame(height: 590)
     }
 }
 

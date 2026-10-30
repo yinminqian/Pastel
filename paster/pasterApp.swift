@@ -26,6 +26,7 @@ struct pasterApp: App {
                          hotKey: delegate.hotKey,
                          mcp: delegate.mcp,
                          onClearHistory: delegate.confirmClearHistory,
+                         onCheckForUpdates: { delegate.updater.checkForUpdates(nil) },
                          onSharingChange: delegate.applyPanelSharingType,
                          onTryStyle: delegate.showPanel)
         }
@@ -310,6 +311,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                   keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
+        // Sparkle's own action, so the item greys out while a check is running.
+        let updates = NSMenuItem(title: String(localized: "Check for Updates…"),
+                                 action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+                                 keyEquivalent: "")
+        updates.target = updater
+        menu.addItem(updates)
         return menu
     }
 
