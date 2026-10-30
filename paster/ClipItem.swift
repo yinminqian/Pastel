@@ -377,7 +377,7 @@ enum PayloadBackfill {
             if touched { changed += 1 }
         }
 
-        if changed > 0 { try? context.save() }
+        if changed > 0 { context.saveOrRollback() }
         return changed
     }
 

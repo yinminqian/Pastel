@@ -69,7 +69,7 @@ enum StressStore {
                 sourceBundleID: app
             ))
         }
-        try? context.save()
+        context.saveOrRollback()
         return container
     }
 

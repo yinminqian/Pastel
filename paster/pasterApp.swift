@@ -324,8 +324,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Schema(versionedSchema: ClipSchema.self)
     }
 
-    private static var storeURL: URL {
-        URL.applicationSupportDirectory.appending(path: "default.store")
+    private static var storeURL: URL { ClipStore.url }
+
+    /// Opens the history at its own path (see `ClipStore` for why not the default).
+    @MainActor
+    private static func openStore() throws -> ModelContainer {
+        try ClipStore.prepare()
+        let container = try ModelContainer(
+            for: schema,
+            configurations: ModelConfiguration(schema: schema, url: storeURL)
+        )
+        // Every change is saved explicitly, through `saveOrRollback`. Autosave
+        // added nothing but a timer that retried a failed save on the main
+        // thread for as long as the app ran.
+        container.mainContext.autosaveEnabled = false
+        return container
     }
 
     @MainActor
@@ -336,7 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         #endif
         do {
-            return try ModelContainer(for: Self.schema)
+            return try Self.openStore()
         } catch {
             return recoverFromStoreFailure(error)
         }
@@ -377,7 +390,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         do {
-            return try ModelContainer(for: Self.schema)
+            return try Self.openStore()
         } catch {
             let failure = NSAlert()
             failure.alertStyle = .critical

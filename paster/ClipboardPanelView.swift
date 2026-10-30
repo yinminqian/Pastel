@@ -827,7 +827,7 @@ struct ClipboardPanelView: View {
         clip.isPinned.toggle()
         // Explicit for the same reason as `delete`: autosave timing is
         // unpredictable, and a pin the user set should not be pending at quit.
-        try? modelContext.save()
+        modelContext.saveOrRollback()
         // Not a change to the history's membership, so the query does not
         // report it — but it moves the clipping in or out of Pinned.
         refreshVisible()
@@ -850,7 +850,7 @@ struct ClipboardPanelView: View {
         modelContext.delete(clip)
         // Explicit: SwiftData's autosave timing is unpredictable, and a delete
         // the user asked for should not be pending when the app quits.
-        try? modelContext.save()
+        modelContext.saveOrRollback()
     }
 
     private func resetScroll() {

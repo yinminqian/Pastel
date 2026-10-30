@@ -230,7 +230,7 @@ final class ClipboardMonitor {
             // with a timestamp nothing actually happened at.
             if !isRefresh {
                 existing.copiedAt = Date()
-                try? context.save()
+                context.saveOrRollback()
             }
             return
         }
@@ -268,7 +268,7 @@ final class ClipboardMonitor {
 
         // SwiftData's autosaving is unpredictable, and losing a clipping means
         // losing something the user cannot get back.
-        try? context.save()
+        context.saveOrRollback()
         prune()
 
         // A copied file gets a real preview of its contents rather than a
@@ -312,7 +312,7 @@ final class ClipboardMonitor {
                       let stored = self.context.model(for: identifier) as? ClipItem
                 else { return }
                 stored.thumbnailData = png
-                try? self.context.save()
+                self.context.saveOrRollback()
             }
         }
     }
@@ -356,7 +356,7 @@ final class ClipboardMonitor {
             }
         }
 
-        if didDelete { try? context.save() }
+        if didDelete { context.saveOrRollback() }
     }
 
     // MARK: - Derivation

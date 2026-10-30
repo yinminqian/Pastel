@@ -433,7 +433,7 @@ final class PanelController {
         let all = (try? context.fetch(FetchDescriptor<ClipItem>(
             sortBy: [SortDescriptor(\.copiedAt, order: .reverse)]))) ?? []
         for clip in all.dropFirst(4).prefix(2) { clip.isPinned = true }
-        try? context.save()
+        context.saveOrRollback()
         show(); await pause(1)
         next()
         // No pasteboard: this must not empty the clipboard of whoever is

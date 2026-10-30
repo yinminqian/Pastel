@@ -56,7 +56,7 @@ enum ClipboardHistory {
 
         let doomed = (try? context.fetch(descriptor)) ?? []
         doomed.forEach(context.delete)
-        if !doomed.isEmpty { try? context.save() }
+        if !doomed.isEmpty { context.saveOrRollback() }
 
         pasteboard?.clearContents()
         // The decoded thumbnails belong to rows that no longer exist.

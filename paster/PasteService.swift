@@ -42,7 +42,7 @@ final class PasteService {
         item.lastPastedAt = now
         // Explicit, like every other user-driven change: autosave timing is
         // unpredictable, and the move should survive a quit right after.
-        try? item.modelContext?.save()
+        item.modelContext?.saveOrRollback()
 
         guard AXIsProcessTrusted(), let target, !target.isTerminated else { return }
         activate(target) { [weak self] in self?.postCommandV() }
