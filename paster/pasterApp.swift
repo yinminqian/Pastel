@@ -25,6 +25,7 @@ struct pasterApp: App {
                          launchAtLogin: delegate.launchAtLogin,
                          hotKey: delegate.hotKey,
                          mcp: delegate.mcp,
+                         terminalBridge: delegate.terminalBridge,
                          onClearHistory: delegate.confirmClearHistory,
                          onCheckForUpdates: { delegate.updater.checkForUpdates(nil) },
                          onSharingChange: delegate.applyPanelSharingType,
@@ -80,6 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var clipboardMonitor: ClipboardMonitor?
     /// Also built at launch, for the same reason as `hotKey`.
     private(set) var mcp: MCPService?
+    /// Built at launch like `mcp`, but on by default — see `TerminalBridge`.
+    private(set) var terminalBridge: TerminalBridgeService?
 
     /// Built lazily in `applicationDidFinishLaunching` because firing it needs
     /// the panel controller, which needs the store.
@@ -147,6 +150,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                              settings: settings)
         mcp.apply()
         self.mcp = mcp
+
+        let terminalBridge = TerminalBridgeService(settings: settings)
+        terminalBridge.apply()
+        self.terminalBridge = terminalBridge
 
         // Checked on every launch, quietly: the user hears about it only when
         // there is an update, and installing it is their click.

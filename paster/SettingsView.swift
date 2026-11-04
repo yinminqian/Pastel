@@ -18,6 +18,7 @@ struct SettingsView: View {
     /// window appears; the pane says so plainly if it is not.
     var hotKey: HotKeyBinding?
     var mcp: MCPService?
+    var terminalBridge: TerminalBridgeService?
     var onClearHistory: () -> Void = {}
     var onCheckForUpdates: () -> Void = {}
     var onSharingChange: () -> Void = {}
@@ -44,6 +45,9 @@ struct SettingsView: View {
 
             MCPSettings(settings: settings, mcp: mcp)
                 .tabItem { Label("MCP", systemImage: "sparkles") }
+
+            TerminalBridgeSettings(settings: settings, bridge: terminalBridge)
+                .tabItem { Label("Terminal", systemImage: "terminal") }
         }
         // Resizable, in both directions, on request. Apple's settings guidance
         // leaves a settings window at its pane's size ("people don't need to
@@ -419,6 +423,55 @@ private struct MCPSettings: View {
         // and stored as a searchable plain-text copy of the credential.
         mcp.copySetupCommand()
         copied = true
+    }
+}
+
+// MARK: - Terminal paste bridge
+
+/// The one switch for `TerminalBridge`, with what it does said beside it.
+private struct TerminalBridgeSettings: View {
+    var settings: AppSettings
+    var bridge: TerminalBridgeService?
+
+    var body: some View {
+        Form {
+            Section("Terminal paste bridge") {
+                Toggle("Let terminals in containers paste from this Mac", isOn: Binding(
+                    get: { settings.terminalBridgeEnabled },
+                    set: { settings.terminalBridgeEnabled = $0; bridge?.apply() }
+                ))
+                Text("On by default. Serves only what is on the clipboard right now — file paths and plain text, never the history — to programs on this Mac, so a terminal session running in a container can paste text and screenshots with ⌘V. Web pages are refused.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if settings.terminalBridgeEnabled {
+                Section("Endpoint") {
+                    LabeledContent("Address") {
+                        Text(bridge?.endpointURL ?? "—")
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("Status") { statusLabel }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .defaultScrollAnchor(.top)
+        .frame(height: settings.terminalBridgeEnabled ? 340 : 200)
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if let failure = bridge?.failure {
+            Label(failure, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+        } else if bridge?.isRunning == true {
+            Label("Listening on this Mac only", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        } else {
+            Text("Not running").font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 

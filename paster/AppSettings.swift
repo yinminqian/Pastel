@@ -109,6 +109,17 @@ final class AppSettings {
         didSet { defaults.set(mcpToken, forKey: Key.mcpToken) }
     }
 
+    /// Whether the terminal paste bridge runs (see `TerminalBridge`).
+    ///
+    /// On by default, unlike MCP, because what it exposes is not the history but
+    /// the *current* clipboard — the same thing `pbpaste` already gives any
+    /// process running as this user — and only on loopback. It exists so a
+    /// terminal whose session runs somewhere that cannot read this Mac's
+    /// clipboard (a container behind Rex) can still paste text and files.
+    var terminalBridgeEnabled: Bool {
+        didSet { defaults.set(terminalBridgeEnabled, forKey: Key.terminalBridgeEnabled) }
+    }
+
     private let defaults: UserDefaults
 
     private enum Key {
@@ -122,6 +133,7 @@ final class AppSettings {
         static let mcpEnabled = "mcp-enabled"
         static let mcpPort = "mcp-port"
         static let mcpToken = "mcp-token"
+        static let terminalBridgeEnabled = "terminal-bridge-enabled"
     }
 
     init(defaults: UserDefaults = .standard) {
@@ -135,6 +147,7 @@ final class AppSettings {
             // reaches for, so it is unlikely to collide with something already
             // running. Changeable regardless.
             Key.mcpPort: 4257,
+            Key.terminalBridgeEnabled: true,
         ])
         self.isPaused = defaults.bool(forKey: Key.isPaused)
         self.panelStyle = defaults.string(forKey: Key.panelStyle)
@@ -146,6 +159,7 @@ final class AppSettings {
         self.mcpEnabled = defaults.bool(forKey: Key.mcpEnabled)
         self.mcpPort = defaults.integer(forKey: Key.mcpPort)
         self.mcpToken = defaults.string(forKey: Key.mcpToken) ?? ""
+        self.terminalBridgeEnabled = defaults.bool(forKey: Key.terminalBridgeEnabled)
         self.shortcut = (defaults.data(forKey: Key.shortcut)
             .flatMap { try? JSONDecoder().decode(Shortcut.self, from: $0) })
             ?? .commandShiftV
