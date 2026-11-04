@@ -3,18 +3,18 @@
   <channel>
     <title>paster</title>
     <item>
-      <title>1.0.5</title>
-      <pubDate>Fri, 30 Oct 2026 10:48:05 GMT</pubDate>
-      <sparkle:version>6</sparkle:version>
-      <sparkle:shortVersionString>1.0.5</sparkle:shortVersionString>
+      <title>1.0.6</title>
+      <pubDate>Wed, 04 Nov 2026 06:33:03 GMT</pubDate>
+      <sparkle:version>7</sparkle:version>
+      <sparkle:shortVersionString>1.0.6</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>26.5</sparkle:minimumSystemVersion>
       <description><![CDATA[
 <ul>
-<li><b>Check for Updates…</b> is now also in <b>Settings › General</b> (next to the version you are running) and in the Dock icon&#x27;s menu, as well as the menu bar.</li>
+<li><b>Terminal paste bridge</b> (Settings › Terminal, on by default): terminals whose session runs in a container — such as a Rex session on a container&#x27;s server — can now paste from this Mac&#x27;s clipboard with ⌘V, including screenshots (pasted as their file path). It serves only what is on the clipboard right now, never the history, on this Mac only (<code>127.0.0.1:4258</code>); web pages are refused.</li>
 </ul>
       ]]></description>
-      <enclosure url="https://github.com/yinminqian/Pastel/releases/download/v1.0.5/paster.dmg" type="application/octet-stream"
-                 sparkle:edSignature="uROSI+XByIDxsmNKvqU31vhrNCdfi+tj9d3b6Wao3LAloXYR8hhx7YU9dpGhrd6UOtal3H/XEOmoOyV+HCFNBQ==" length="3688231"/>
+      <enclosure url="https://github.com/yinminqian/Pastel/releases/download/v1.0.6/paster.dmg" type="application/octet-stream"
+                 sparkle:edSignature="KX4ODmrrZd8qWnltNsMfoc2ABj48hPLo4z+Fbnm6EV2BxTC+mfoMTjwcMadU8Fzbhg4MoSDK9OY550aGbWjADg==" length="3730076"/>
     </item>
   </channel>
 </rss>
